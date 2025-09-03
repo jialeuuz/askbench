@@ -25,13 +25,8 @@ askQ 的工作流程旨在模拟真实的用户交互场景，通过“生成-�
 
 评测的核心流程，尤其是在多轮对话场景下，如下图所示：
 
-<!--
-    重要提示:
-    请将下面的图片 workflow.png 上传到你的 GitHub 仓库中 (例如，在根目录创建一个 docs/images 文件夹),
-    然后将下面的 src 路径替换为实际的图片链接。
--->
 <p align="center">
-  <img src="https://i.imgur.com/714155g.png" alt="askQ Workflow" width="700"/>
+  <img src="[https://i.imgur.com/714155g.png](https://github.com/jialeuuz/askQ/blob/main/docs/images/image.png)" alt="askQ Workflow" width="700"/>
 </p>
 
 该流程可以分解为以下步骤：
