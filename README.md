@@ -1,6 +1,4 @@
-askQ: API-Based Language Model Evaluation Framework
-
-askQ 是一个基于 API 调用的语言模型（LLM）评测框架。其核心设计是将模型的**生成（Generation）**与**评审（Judging）**过程解耦，通过独立的 API 进行交互。这使得框架非常灵活，可以轻松评测各类模型，并支持自定义的评审标准，尤其擅长处理需要多轮交互的复杂任务。
+askQ bench 是一个基于 API 调用的语言模型（LLM）评测框架。其核心设计是将模型的**生成（Generation）**与**评审（Judging）**过程解耦，通过独立的 API 进行交互。这使得框架非常灵活，可以轻松评测各类模型，并支持自定义的评审标准，尤其擅长处理需要多轮交互的复杂任务。
 ✨ 核心特性 (Core Features)
 
 - API 驱动: 整个评测流程基于 API 调用，易于集成和扩展。
@@ -26,7 +24,7 @@ askQ 的工作流程旨在模拟真实的用户交互场景，通过“生成-�
 评测的核心流程，尤其是在多轮对话场景下，如下图所示：
 
 <p align="center">
-  <img src="[https://i.imgur.com/714155g.png](https://github.com/jialeuuz/askQ/blob/main/docs/images/image.png)" alt="askQ Workflow" width="700"/>
+  <img src="https://github.com/jialeuuz/askQ/blob/main/docs/images/image.png" alt="askQ Workflow" width="700"/>
 </p>
 
 该流程可以分解为以下步骤：
