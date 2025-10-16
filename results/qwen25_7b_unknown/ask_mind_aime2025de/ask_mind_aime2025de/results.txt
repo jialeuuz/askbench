@@ -1,0 +1,11 @@
+评估集: ask_mind_aime2025de
+任务名称: ask_mind_aime2025de
+最终正确率 (Accuracy): 0.0667
+开始时间: 2025-10-14 10:01:51
+结束时间: 2025-10-14 10:02:22
+总耗时: 0:00:31.253143
+
+AskBench Final Accuracy: 0.0667 (2 / 30)
+
+Evaluation Outcome Distribution:
+  - FinalAnswerEvaluated: 30 samples (100.0%)

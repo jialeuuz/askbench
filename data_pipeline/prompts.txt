@@ -1,0 +1,220 @@
+# ===================================================================
+# prompts.txt (V4 - 最终修正版)
+# ===================================================================
+
+# ### V3 修正版: 增加了严格的负向约束，防止修改无关内容 ###
+template_generate_degraded_question_and_info = '''You are an expert in query obfuscation. Your task is to take the given original Q&A pair and perform **targeted modifications** to the question to make it both informationally incomplete and ambiguous.
+
+**You must strictly follow these rules:**
+
+1.  **Identify Critical Information:** From the original question, identify at least one critical fact, number, or condition that is absolutely necessary to reach the correct answer. This information will be removed.
+2.  **Identify Ambiguity Targets:** From the remaining text, identify at least one or two precise terms or numbers that can be replaced with vague, colloquial expressions.
+3.  **Perform Targeted Modifications:**
+    -   Remove the critical information identified in Step 1.
+    -   Replace the precise terms from Step 2 with vague ones.
+4.  **CRITICAL RULE: DO NOT ALTER ANYTHING ELSE.** You must **NOT** remove, rephrase, or alter any other part of the original question, such as background context, formatting instructions (e.g., "Format your response as..."), or parts of the sentence that are not your direct modification targets. The structure of the original question must be preserved.
+5.  **Output Format:** Return the result **only** in the following JSON structure, with no other text or explanations.
+    ```json
+    {{
+        "degraded_question": "<the question with only the targeted modifications applied>",
+        "degraded_info": "<a detailed description of exactly what information was removed and what terms were replaced, explaining why these changes make the question incomplete and ambiguous>"
+    }}
+    ```
+
+**Original Question:**
+{ori_question}
+
+**Standard Answer:**
+{expected_answer}
+'''
+
+template_assistant_ask_first_question = '''
+You are a helpful but cautious AI assistant. You have received a user's question, but it is too vague to answer correctly.
+Your task is to analyze the "Ambiguous Question" and the internal "Degradation Info" to ask **only one** single, most critical clarifying question to get more information.
+
+**Rules:**
+- **Do not** attempt to answer the original question.
+- **Do not** reveal that you have access to "Degradation Info".
+- Your question should be natural and polite, as if you genuinely need more context.
+- From the "Degradation Info", choose only **one** key point to ask about.
+
+# Ambiguous Question:
+{degraded_question}
+
+# Internal Degradation Info (Choose one point from here to ask about):
+{degraded_info}
+
+# Your Clarifying Question:
+'''
+
+template_simulate_user_reply = '''
+You are a user simulator. Your task is to reply to the AI assistant's last question based on the conversation history and the "User's Full Information" you possess.
+
+**Rules:**
+- Only answer the last question asked by the AI assistant.
+- Find the precise information within the "User's Full Information" to formulate your answer.
+- Your reply should be natural and direct, like a typical user.
+
+# Conversation History:
+{conversation_history}
+
+# User's Full Information:
+{degraded_info}
+
+# Your Reply as the User:
+'''
+
+# ### V3 修正版: 明确要求输出详细的推理过程 ###
+template_generate_final_answer = '''
+You are a helpful AI assistant. You have now gathered information through a multi-turn conversation with the user.
+Your task is to provide a comprehensive, accurate, and final answer based on the **entire conversation history**.
+
+**Rules:**
+- **Do not** ask any more questions.
+- Synthesize all information from the entire conversation to formulate your response.
+- **You must show your work.** Provide a step-by-step reasoning process that clearly explains how you arrived at the final answer. The final result must be correct.
+
+# Entire Conversation History:
+{conversation_history}
+
+# Your Comprehensive Final Answer (including step-by-step reasoning):
+'''
+
+# ### V3 核心修正: 增加了 `degraded_info` 作为判断依据 ###
+template_judge_answer = '''
+You are a precise and objective answer reviewer. Your task is to determine if the "Generated Answer" is correct, based on the full context.
+
+**Rules:**
+1.  Review the **Entire Conversation History** to see what information the AI gathered.
+2.  Review the **Degradation Info** to know what information was *initially missing* and needed to be asked for.
+3.  Compare the "Generated Answer" to the "Standard Answer".
+4.  You must return your verdict **only** in the following strict JSON format.
+5.  If the answer is correct, `is_correct` must be `true` and `reason` must be `null`.
+6.  If the answer is incorrect, `is_correct` must be `false`, and `reason` must be one of these two specific strings:
+    -   `'insufficient_asking'`: Use this if the Generated Answer is wrong because the AI answered prematurely. By comparing the conversation to the Degradation Info, you can see it **failed to ask for all the necessary missing facts**.
+    -   `'reasoning_error'`: Use this if the AI **successfully gathered all necessary information** (as confirmed by the Degradation Info) but still made a logical, calculation, or factual error in its final answer.
+
+# Entire Conversation History:
+{conversation_history}
+
+# Degradation Info (All points that were initially missing):
+{degraded_info}
+
+# Generated Answer:
+{generated_answer}
+
+# Standard Answer:
+{expected_answer}
+
+# Your Review (JSON format only):
+'''
+
+template_assistant_ask_follow_up_question = '''
+You are a helpful but cautious AI assistant in an ongoing conversation.
+You have already asked a question, but based on the internal "Degradation Info", you realize you still need more information to provide a perfect answer.
+
+**Task:**
+Review the "Conversation History" and the "Degradation Info" to ask a **new, previously unasked** clarifying question.
+
+**Rules:**
+- Check the history to avoid asking the same question twice.
+- Select a new, unaddressed key point from the "Degradation Info" to ask about.
+- Keep your question natural and polite.
+
+# Conversation History:
+{conversation_history}
+
+# Internal Degradation Info (Choose a new point to ask about):
+{degraded_info}
+
+# Your New Clarifying Question:
+'''
+
+template_force_correct_answer = '''
+You are an AI assistant. In the previous turn, you attempted to answer but made a reasoning error.
+Your task is to now generate the perfect, correct final reply that you **should have** given.
+
+**Rules:**
+- Your response must be factually and semantically identical to the "Standard Answer".
+- **You must show your work.** Your response should be a comprehensive, step-by-step explanation that naturally concludes the conversation and leads to the correct final answer.
+- Your tone should be confident and helpful. **Do not mention your previous error or the correction process.**
+- If a "Detailed Solution for Reference" is provided, use it as a guide to structure your step-by-step reasoning.
+
+# Conversation History (leading up to your failed attempt):
+{conversation_history}
+{solution_section}
+# Standard Answer (Your final output's conclusion must align with this):
+{expected_answer}
+
+# Your Corrected, Perfect Final Answer (including step-by-step reasoning):
+'''
+
+# ===================================================================
+# 策略 3: Direct Answer & Correct 的 Prompts
+# ===================================================================
+
+# 步骤 1: 直接生成包含关键点分析的答案
+template_direct_answer = '''
+You are an expert analyst and problem-solver. Your task is to provide a comprehensive, direct answer to the user's question.
+
+**Instructions:**
+Your response must follow this specific structure:
+1.  **Identify Key Factors & Assumptions:** Before solving, explicitly state the critical pieces of information, numbers, or conditions in the question that heavily influence the final outcome. If any part of the question is ambiguous, state the assumption you are making to proceed.
+2.  **Provide Step-by-Step Analysis:** Clearly show your work. Explain the logic, calculations, or reasoning process you used to connect the key factors to the conclusion.
+3.  **State the Final Conclusion:** Conclude with a clear and concise final answer.
+
+**Rule:**
+- Do not ask for clarification. Provide the best possible answer based on the information given.
+
+# User's Question:
+{ori_question}
+
+# Your Comprehensive Answer:
+'''
+
+# 步骤 2: 判断直接生成的答案是否正确
+template_judge_direct_answer = '''
+You are a meticulous and objective answer evaluator. Your sole task is to compare the "Generated Answer" to the "Standard Answer" and determine if they are semantically and factually equivalent.
+
+**Evaluation Criteria:**
+- The "Generated Answer" is considered correct (`true`) only if its final conclusion and key reasoning steps match the "Standard Answer".
+- Minor differences in wording are acceptable, but logical, calculation, or factual errors are not.
+
+**Output Format:**
+You must return your verdict **only** in the following strict JSON format.
+- If the answer is correct, `is_correct` must be `true` and `reason` must be `null`.
+- If the answer is incorrect, `is_correct` must be `false` and `reason` must be the string `'reasoning_error'`.
+
+# Original Question:
+{ori_question}
+
+# Generated Answer:
+{generated_answer}
+
+# Standard Answer:
+{expected_answer}
+
+# Your Review (JSON format only):
+'''
+
+# 步骤 4: 根据正确答案和解题思路重构一个完美的答案
+template_reconstruct_answer = '''
+You are an expert AI assistant tasked with self-correction. You previously provided an incorrect or incomplete answer to a user's question. Your task now is to generate the perfect, definitive answer you **should have** given.
+
+**Strict Rules:**
+1.  **DO NOT** apologize or mention your previous mistake. Your response should be a standalone, confident, and correct answer.
+2.  Your final conclusion **must** be factually and semantically identical to the "Standard Answer".
+3.  You **must** provide a detailed, step-by-step reasoning process that logically leads to the final answer.
+4.  If a "Detailed Solution for Reference" is provided, use it as a primary guide for structuring your explanation. If it's not provided, derive the reasoning from the "Standard Answer".
+
+# Original Question:
+{ori_question}
+
+# Your Previous (Incorrect) Answer:
+{generated_answer}
+{solution_section}
+# Standard Answer (Your final output's conclusion must align with this):
+{expected_answer}
+
+# Your New, Perfect, and Comprehensive Final Answer (including step-by-step reasoning):
+'''

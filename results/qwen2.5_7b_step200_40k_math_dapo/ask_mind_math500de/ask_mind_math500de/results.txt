@@ -1,0 +1,12 @@
+评估集: ask_mind_math500de
+任务名称: ask_mind_math500de
+最终正确率 (Accuracy): 0.4060
+开始时间: 2025-10-14 18:07:42
+结束时间: 2025-10-14 18:10:25
+总耗时: 0:02:42.580527
+
+AskBench Final Accuracy: 0.4060 (203 / 500)
+
+Evaluation Outcome Distribution:
+  - FinalAnswerEvaluated: 496 samples (99.2%)
+  - FailedToAnswerOnLastTurn: 4 samples (0.8%)

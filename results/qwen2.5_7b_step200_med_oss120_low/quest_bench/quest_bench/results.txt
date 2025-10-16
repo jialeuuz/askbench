@@ -1,0 +1,11 @@
+评估集: quest_bench
+任务名称: quest_bench
+最终正确率 (Accuracy): 0.3090
+开始时间: 2025-10-15 11:30:53
+结束时间: 2025-10-15 11:32:31
+总耗时: 0:01:38.435707
+
+AskBench Final Accuracy: 0.3090 (89 / 288)
+
+Evaluation Outcome Distribution:
+  - FinalAnswerEvaluated: 288 samples (100.0%)
