@@ -10,7 +10,7 @@ from ask_eval.models.base_api_model import BaseAPIModel
 
 class CustomAPI(BaseAPIModel):
     def __init__(self, url: str, sk_token: str = 'none', api_type: str = 'custom-reasoner', 
-                 api_urls: List[str] = None, timeout: float = 600, extra_prompt: str = None, system_prompt: str = None, enable_thinking: bool = True, generate_config: Dict = None):
+                 api_urls: List[str] = None, timeout: float = 3600, extra_prompt: str = None, system_prompt: str = None, enable_thinking: bool = True, generate_config: Dict = None):
         super().__init__(url, api_urls, timeout, extra_prompt, system_prompt, generate_config)
         self.sk_token = sk_token
         self.api_type = api_type

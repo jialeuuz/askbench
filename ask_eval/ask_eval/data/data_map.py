@@ -15,6 +15,7 @@ LOADER_MAP = {
     "ask_mind_medqade":JsonlLoader,
     "ask_mind_aime2025de":JsonlLoader,
     "ask_mind_bbhde":JsonlLoader,
+    "ask_mind_gpqade":JsonlLoader,
     "quest_bench":JsonlLoader,
     "bbh":JsonlLoader,
 }

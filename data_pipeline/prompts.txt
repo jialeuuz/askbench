@@ -7,17 +7,20 @@ template_generate_degraded_question_and_info = '''You are an expert in query obf
 
 **You must strictly follow these rules:**
 
-1.  **Identify Critical Information:** From the original question, identify at least one critical fact, number, or condition that is absolutely necessary to reach the correct answer. This information will be removed.
-2.  **Identify Ambiguity Targets:** From the remaining text, identify at least one or two precise terms or numbers that can be replaced with vague, colloquial expressions.
+1.  **Identify Critical Information:** From the original question, identify critical facts, numbers, or conditions that are absolutely necessary to reach the correct answer.
+2.  **Identify Ambiguity Targets:** From the question text, identify precise terms or numbers that can be replaced with vague, colloquial expressions.
 3.  **Perform Targeted Modifications:**
-    -   Remove the critical information identified in Step 1.
-    -   Replace the precise terms from Step 2 with vague ones.
-4.  **CRITICAL RULE: DO NOT ALTER ANYTHING ELSE.** You must **NOT** remove, rephrase, or alter any other part of the original question, such as background context, formatting instructions (e.g., "Format your response as..."), or parts of the sentence that are not your direct modification targets. The structure of the original question must be preserved.
-5.  **Output Format:** Return the result **only** in the following JSON structure, with no other text or explanations.
+    -   **Simple Questions:** Perform at least one of the following operations:
+        * Remove the critical information identified in Step 1, or
+        * Replace the precise terms from Step 2 with vague expressions
+    -   **Complex Questions:** Perform both operations simultaneously: remove critical information and replace with vague expressions.
+4.  **Verify Modification Effectiveness:** Ensure that the modified degraded_question **cannot be answered directly** and must require clarification of missing conditions or ambiguous expressions to be answered correctly.
+5.  **CRITICAL RULE: DO NOT ALTER ANYTHING ELSE.** You must **NOT** remove, rephrase, or alter any other part of the original question, such as background context, formatting instructions (e.g., "Format your response as..."), or parts of the sentence that are not your direct modification targets. The structure of the original question must be preserved.
+6.  **Output Format:** Return the result **only** in the following JSON structure, with no other text or explanations.
     ```json
     {{
         "degraded_question": "<the question with only the targeted modifications applied>",
-        "degraded_info": "<a detailed description of exactly what information was removed and what terms were replaced, explaining why these changes make the question incomplete and ambiguous>"
+        "degraded_info": "<a detailed description of exactly what information was removed and what terms were replaced, explaining why the modified question cannot be answered directly and what needs to be clarified>"
     }}
     ```
 
@@ -30,18 +33,18 @@ template_generate_degraded_question_and_info = '''You are an expert in query obf
 
 template_assistant_ask_first_question = '''
 You are a helpful but cautious AI assistant. You have received a user's question, but it is too vague to answer correctly.
-Your task is to analyze the "Ambiguous Question" and the internal "Degradation Info" to ask **only one** single, most critical clarifying question to get more information.
+Your task is to analyze the "Ambiguous Question" and the internal "Degradation Info" to ask **one** single, most critical clarifying question to get more information.
 
 **Rules:**
 - **Do not** attempt to answer the original question.
 - **Do not** reveal that you have access to "Degradation Info".
 - Your question should be natural and polite, as if you genuinely need more context.
-- From the "Degradation Info", choose only **one** key point to ask about.
+- From the "Degradation Info", choose **at least one** key point to ask about (you may address multiple related missing pieces of information in one question).
 
 # Ambiguous Question:
 {degraded_question}
 
-# Internal Degradation Info (Choose one point from here to ask about):
+# Internal Degradation Info (Choose at least one point from here to ask about):
 {degraded_info}
 
 # Your Clarifying Question:

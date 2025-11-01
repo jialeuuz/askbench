@@ -1,5 +1,5 @@
 #!/bin/bash
-export PYTHONPATH='/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/bak/ask_eval'
+export PYTHONPATH='/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/ask_eval'
 # 如果任何命令失败，则立即退出
 set -e
 
@@ -12,24 +12,25 @@ DEFAULT_RESULTS_ROOT="results"
 # 通过命令行传入的参数将覆盖 base.ini 中的对应值。
 
 # [必需] 模型的 API URL
-API_URL="http://10.80.12.28:8013/v1/chat/completions"
+API_URL="http://10.80.13.48:8012/v1/chat/completions"
 # [必需] 逗号分隔的任务列表 (math500,medqa,aime2025,aime2025_de,math500_de,medqa_de,ask_yes,ask_mind,ask_lone)
 # math500,medqa,aime2025,
-# ask_mind_math500de,ask_mind_medqade,ask_mind_aime2025de
+# ask_mind_math500de,ask_mind_medqade,ask_mind_aime2025de,ask_mind_gpqade,ask_mind_bbhde
 # quest_bench
-TASKS="math500,medqa,aime2025,ask_mind_math500de,ask_mind_medqade,ask_mind_aime2025de,quest_bench"
+# math500,medqa,ask_mind_math500de,ask_mind_medqade,quest_bench
+TASKS="math500,aime2025"
 # [可选] 手动指定结果保存目录。若不指定，将根据模型和任务自动生成。
-SAVE_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/bak/results/qwen2.5_7b_step200_med_oss120_low"
-# SAVE_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/results/qwen25_7b_ins"
+SAVE_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/bak/results/qwen25_7b_17k_math_160step"
+# SAVE_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/results/qwen3_8b"
 # [可选] [evaluatorconfig] api_url
-EVAL_API_URL="http://10.80.13.117:8012/v1/chat/completions,http://10.80.13.117:8013/v1/chat/completions,http://10.80.13.117:8014/v1/chat/completions,http://10.80.13.117:8015/v1/chat/completions"
+EVAL_API_URL="http://10.80.13.97:8014/v1/chat/completions"
 # EVAL_API_URL="https://lisunzhu123.fc.chj.cloud/gpt_41"
 # [可选] [generateconfig] max_tokens 
-MAX_TOKENS=8000
+MAX_TOKENS=28000
 # [可选] [generateconfig] temperature
 TEMPERATURE="0.7"
 # [可选] [generateconfig] max_concurrent
-GEN_MAX_CONCURRENT=100
+GEN_MAX_CONCURRENT=10
 # [可选] [evaluatorconfig] max_concurrent
 EVAL_MAX_CONCURRENT=50
 

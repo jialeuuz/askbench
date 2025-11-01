@@ -207,9 +207,9 @@ async def main(
 
 if __name__ == "__main__":
     STRATEGY = "generate_multi_turn_training_data"
-    INPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/dapo/dapo_distill.jsonl"
-    OUTPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/dapo/dapo_distill_ask.jsonl"
-    API_URLS = ["http://10.80.12.96:8012/v1/chat/completions","http://10.80.12.96:8013/v1/chat/completions","http://10.80.12.96:8014/v1/chat/completions","http://10.80.12.96:8015/v1/chat/completions"]
+    INPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/data/17k_dapo_7b_reject/train_jsonl/17k_dapo_7b_reject.jsonl"
+    OUTPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/yitu/17k_dapo_7b_reject_ask.jsonl"
+    API_URLS = ["http://10.80.23.244:9000/v1/chat/completions"]
     API_TYPE = "default"
     API_TOKEN = "none"
     PROMPTS_FILE = "prompts.txt"
