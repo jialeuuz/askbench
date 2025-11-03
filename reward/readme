@@ -14,7 +14,7 @@ reward/train.sh记录着我用的训练参数，不过不同机器参数配置�
 训练趋势查看：
 1. 我写的monitor：if __name__ == "__main__":里配置参数即可，运行后是gradio网页
 2. tensorboard：tensorboard_log/verl_zjl：这里的tensorboard_log默认应该是位于/verl/tensorboard_log下，运行后也是个网页链接，点进去看就行，但是内容很多，我也在探索怎么用，我一般左边勾选模型，中间找到val-aux展开查看reward和score趋势
-
+    tensorboard --logdir /lpai/volumes/base-mindgpt-ali-sh-mix/zhouyang/verl_run/tensorboard_log
 
 tools/gradio_compare.py可以比较两个模型的输出，control F 搜索api1_input即可找到配置API位置或直接运行在gradio界面配置。
 
@@ -29,3 +29,11 @@ tools/gradio_compare.py可以比较两个模型的输出，control F 搜索api1_
 
 
 https://huggingface.co/datasets/open-r1/DAPO-Math-17k-Processed
+RAR-med
+RAR-science
+Rubrics as Rewards: Reinforcement Learning Beyond Verifiable Domains
+
+hostname -i查看服务器ip
+
+造数据模型：
+qwen3-235b-a22b-instruct-2507 

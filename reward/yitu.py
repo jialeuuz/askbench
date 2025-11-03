@@ -9,10 +9,7 @@ import re
 
 # 从环境变量获取API URLs，如果没有则使用默认值
 API_URLS = [
-    "http://10.72.0.14:8001/v1/chat/completions",
-    "http://10.72.0.14:8002/v1/chat/completions",
-    "http://10.72.0.14:8003/v1/chat/completions",
-    "http://10.72.0.14:8004/v1/chat/completions"
+    "http://10.72.0.14:8001/v1/chat/completions"
 ]
 
 import time
