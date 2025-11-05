@@ -16,12 +16,13 @@ template_generate_degraded_question_and_info = '''You are an expert in query obf
     -   **Complex Questions:** Perform both operations simultaneously: remove critical information and replace with vague expressions.
 4.  **Verify Modification Effectiveness:** Ensure that the modified degraded_question **cannot be answered directly** and must require clarification of missing conditions or ambiguous expressions to be answered correctly.
 5.  **CRITICAL RULE: DO NOT ALTER ANYTHING ELSE.** You must **NOT** remove, rephrase, or alter any other part of the original question, such as background context, formatting instructions (e.g., "Format your response as..."), or parts of the sentence that are not your direct modification targets. The structure of the original question must be preserved.
-6.  **Output Format:** Return the result **only** in the following JSON structure, with no other text or explanations.
+6.  **Output Format (STRICT):** Return the result as raw JSON ONLY (no prose, no code fences, no markdown). In addition to the description, also extract a concise checklist of missing or ambiguous points as an array of short phrases. The structure must be exactly:
     ```json
-    {{
+    {
         "degraded_question": "<the question with only the targeted modifications applied>",
-        "degraded_info": "<a detailed description of exactly what information was removed and what terms were replaced, explaining why the modified question cannot be answered directly and what needs to be clarified>"
-    }}
+        "degraded_info": "<a detailed description of exactly what information was removed and what terms were replaced, explaining why the modified question cannot be answered directly and what needs to be clarified>",
+        "required_points": ["<point 1>", "<point 2>", "<point 3>"]
+    }
     ```
 
 **Original Question:**
@@ -47,6 +48,9 @@ Your task is to analyze the "Ambiguous Question" and the internal "Degradation I
 # Internal Degradation Info (Choose at least one point from here to ask about):
 {degraded_info}
 
+# Required Checklist (if present, prioritize selecting from this list):
+{required_points}
+
 # Your Clarifying Question:
 '''
 
@@ -70,32 +74,32 @@ You are a user simulator. Your task is to reply to the AI assistant's last quest
 # ### V3 修正版: 明确要求输出详细的推理过程 ###
 template_generate_final_answer = '''
 You are a helpful AI assistant. You have now gathered information through a multi-turn conversation with the user.
-Your task is to provide a comprehensive, accurate, and final answer based on the **entire conversation history**.
+Your task is to provide a correct final answer based on the **entire conversation history**.
 
 **Rules:**
 - **Do not** ask any more questions.
 - Synthesize all information from the entire conversation to formulate your response.
-- **You must show your work.** Provide a step-by-step reasoning process that clearly explains how you arrived at the final answer. The final result must be correct.
+- Provide a brief justification (1–3 sentences) and then a clear final conclusion line starting with "Final Answer:".
 
 # Entire Conversation History:
 {conversation_history}
 
-# Your Comprehensive Final Answer (including step-by-step reasoning):
+# Your Final Response (brief justification + "Final Answer: ..."):
 '''
 
 # ### V3 核心修正: 增加了 `degraded_info` 作为判断依据 ###
 template_judge_answer = '''
-You are a precise and objective answer reviewer. Your task is to determine if the "Generated Answer" is correct, based on the full context.
+You are a precise and conservative answer reviewer. Your task is to determine if the "Generated Answer" is correct, based on the full context.
 
-**Rules:**
-1.  Review the **Entire Conversation History** to see what information the AI gathered.
-2.  Review the **Degradation Info** to know what information was *initially missing* and needed to be asked for.
-3.  Compare the "Generated Answer" to the "Standard Answer".
-4.  You must return your verdict **only** in the following strict JSON format.
-5.  If the answer is correct, `is_correct` must be `true` and `reason` must be `null`.
-6.  If the answer is incorrect, `is_correct` must be `false`, and `reason` must be one of these two specific strings:
-    -   `'insufficient_asking'`: Use this if the Generated Answer is wrong because the AI answered prematurely. By comparing the conversation to the Degradation Info, you can see it **failed to ask for all the necessary missing facts**.
-    -   `'reasoning_error'`: Use this if the AI **successfully gathered all necessary information** (as confirmed by the Degradation Info) but still made a logical, calculation, or factual error in its final answer.
+**Rules (Checklist-First Adjudication):**
+1. Review the **Entire Conversation History** to see what information the AI gathered.
+2. Review the **Degradation Info** and, if present, the **Required Checklist** below. Extract a checklist of required information points that must be clarified to answer correctly.
+3. For each checklist item, check whether the conversation includes an explicit, user-provided value that resolves it (not a guess, assumption, or vague phrasing). Consider an item covered only if it is clearly and specifically addressed.
+4. If any checklist item is not covered, classify as `insufficient_asking`.
+5. Only if all items are covered, compare the "Generated Answer" to the "Standard Answer". If the final conclusion or essential reasoning is wrong, classify as `reasoning_error`. If it matches, classify as correct.
+
+**Output:**
+Return your verdict only as strict JSON with keys `is_correct` and `reason` (`null`, `'insufficient_asking'`, or `'reasoning_error'`). You may include an auxiliary field `coverage` as an array of objects like `{ "point": "...", "covered": true/false }`.
 
 # Entire Conversation History:
 {conversation_history}
@@ -103,13 +107,16 @@ You are a precise and objective answer reviewer. Your task is to determine if th
 # Degradation Info (All points that were initially missing):
 {degraded_info}
 
+# Required Checklist (if present):
+{required_points}
+
 # Generated Answer:
 {generated_answer}
 
 # Standard Answer:
 {expected_answer}
 
-# Your Review (JSON format only):
+# Your Review (JSON only, may include optional coverage):
 '''
 
 template_assistant_ask_follow_up_question = '''
@@ -130,7 +137,53 @@ Review the "Conversation History" and the "Degradation Info" to ask a **new, pre
 # Internal Degradation Info (Choose a new point to ask about):
 {degraded_info}
 
+# Required Checklist (if present, choose an unaddressed point):
+{required_points}
+
 # Your New Clarifying Question:
+'''
+
+# 合并询问：在最后一轮一次性把剩余未覆盖要点问清
+template_assistant_ask_all_remaining = '''
+You are a helpful and thorough AI assistant. This is the final opportunity to clarify missing information before producing the final answer.
+
+**Task:**
+Examine the conversation and the required checklist. Identify all items that remain unresolved (not explicitly answered by the user). Compose a single, concise question that asks for ALL remaining items at once.
+
+**Rules:**
+- Do not ask anything that has already been clearly and explicitly provided in the conversation.
+- If everything is already covered, ask a minimal confirmation question that restates the covered points and requests confirmation in one sentence.
+- Keep the wording natural and polite, but ensure every remaining item is explicitly requested.
+
+# Conversation History:
+{conversation_history}
+
+# Required Checklist (list all unaddressed items in your mind first, then ask):
+{required_points}
+
+# Your Single Combined Clarifying Question:
+'''
+
+# 覆盖自检：作答前核对是否已覆盖所有必要信息点
+template_coverage_check = '''
+You are a strict coverage checker. Your sole task is to determine whether the conversation has obtained explicit user-provided values for all required information points.
+
+Rules:
+- Read the conversation carefully. Consider an item "covered" only if the user has explicitly provided a concrete value that resolves it (not a guess or assumption by the assistant).
+- If the checklist is empty, treat coverage as complete.
+- Output JSON only with the following structure and nothing else:
+  {
+    "all_covered": <true|false>,
+    "missing": ["<point still missing>", ...]
+  }
+
+# Conversation History:
+{conversation_history}
+
+# Required Checklist:
+{required_points}
+
+# Your JSON verdict:
 '''
 
 template_force_correct_answer = '''
@@ -139,7 +192,7 @@ Your task is to now generate the perfect, correct final reply that you **should 
 
 **Rules:**
 - Your response must be factually and semantically identical to the "Standard Answer".
-- **You must show your work.** Your response should be a comprehensive, step-by-step explanation that naturally concludes the conversation and leads to the correct final answer.
+- Provide a brief justification (1–3 sentences) that naturally leads to the correct final answer.
 - Your tone should be confident and helpful. **Do not mention your previous error or the correction process.**
 - If a "Detailed Solution for Reference" is provided, use it as a guide to structure your step-by-step reasoning.
 
@@ -149,7 +202,7 @@ Your task is to now generate the perfect, correct final reply that you **should 
 # Standard Answer (Your final output's conclusion must align with this):
 {expected_answer}
 
-# Your Corrected, Perfect Final Answer (including step-by-step reasoning):
+# Your Corrected, Perfect Final Answer (brief justification + "Final Answer: ..."):
 '''
 
 # ===================================================================

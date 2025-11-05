@@ -87,6 +87,19 @@ def save_jsonl(data: List[Dict[str, Any]], file_path: str, mode: str = 'w'):
     print(f"成功将 {len(data)} 条数据{action}到 '{file_path}'。")
 
 
+def _ensure_failure_meta(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """确保失败样本包含基本的失败元信息。"""
+    ensured = []
+    for it in items:
+        if isinstance(it, dict) and '_failure' not in it:
+            enriched = it.copy()
+            enriched['_failure'] = {"step": "unknown", "reason": "unspecified", "attempts": 0}
+            ensured.append(enriched)
+        else:
+            ensured.append(it)
+    return ensured
+
+
 async def main(
     strategy: str,
     input_file: str,
@@ -99,7 +112,9 @@ async def main(
     timeout: int,
     # ### 新增功能 3: 批处理大小和ID键名 ###
     batch_size: int,
-    id_key: str = "id"
+    id_key: str = "id",
+    # 是否重新处理历史失败项（默认 False 表示跳过失败项）
+    reprocess_failed: bool = False,
 ):
     """
     数据构建 Pipeline 主函数，支持断点重续和分批处理。
@@ -119,11 +134,20 @@ async def main(
     processed_ids = get_processed_ids(output_file, id_key)
     failed_base, failed_ext = os.path.splitext(output_file)
     failed_output_file = f"{failed_base}_failed{failed_ext}"
-    # 失败的文件也需要检查，避免重复处理已失败的任务
-    processed_ids.update(get_processed_ids(failed_output_file, id_key))
+    # 失败的文件也需要检查，避免重复处理已失败的任务（可通过开关控制）
+    failed_ids = get_processed_ids(failed_output_file, id_key)
+    if reprocess_failed:
+        print("已开启重新处理失败项：不会跳过失败ID。")
+    else:
+        processed_ids.update(failed_ids)
     
     if processed_ids:
         print(f"总计: 将跳过 {len(processed_ids)} 个已处理 (成功或失败) 的数据项。")
+    # 统计成功与失败的历史数量，便于理解为何可能“瞬间结束”
+    if os.path.exists(output_file):
+        print(f"历史成功项数量: {len(get_processed_ids(output_file, id_key))}")
+    if os.path.exists(failed_output_file):
+        print(f"历史失败项数量: {len(failed_ids)}")
 
     # 3. 初始化 API 客户端 (保持不变)
     api_client = CustomAPI(
@@ -175,7 +199,7 @@ async def main(
             # 6. ### 优化点 5 改动: 追加保存结果 ###
             save_jsonl(completed_data, output_file, mode='a')
             if failed_data:
-                save_jsonl(failed_data, failed_output_file, mode='a')
+                save_jsonl(_ensure_failure_meta(failed_data), failed_output_file, mode='a')
 
             total_processed_in_run += len(batch_to_process)
             print(f"--- 批处理完成。本次运行已累计处理 {total_processed_in_run} 条新数据 ---")
@@ -194,29 +218,36 @@ async def main(
 
         save_jsonl(completed_data, output_file, mode='a')
         if failed_data:
-            save_jsonl(failed_data, failed_output_file, mode='a')
+            save_jsonl(_ensure_failure_meta(failed_data), failed_output_file, mode='a')
 
         total_processed_in_run += len(batch_to_process)
         print(f"--- 最后一批处理完成。 ---")
 
     print("\n--- Pipeline 执行完毕！ ---")
     print(f"本次运行共处理了 {total_processed_in_run} 条新数据。")
-    final_count = len(get_processed_ids(output_file, id_key))
-    print(f"输出文件 '{output_file}' 中现在总共有 {final_count} 条数据。")
+    final_success_count = len(get_processed_ids(output_file, id_key))
+    final_failed_count = len(get_processed_ids(failed_output_file, id_key))
+    print(f"输出文件 '{output_file}' 中现在总共有 {final_success_count} 条数据。")
+    print(f"失败文件 '{failed_output_file}' 中现在总共有 {final_failed_count} 条数据。")
 
 
 if __name__ == "__main__":
     STRATEGY = "generate_multi_turn_training_data"
-    INPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/data/17k_dapo_7b_reject/train_jsonl/17k_dapo_7b_reject.jsonl"
-    OUTPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/yitu/17k_dapo_7b_reject_ask.jsonl"
-    API_URLS = ["http://10.80.23.244:9000/v1/chat/completions"]
+    INPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/sample_medmcqa_2k_clear.jsonl"
+    OUTPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/yitu/sample_medmcqa_2k_ask.jsonl"
+    API_URLS = ["http://10.80.128.219:9012/v1/chat/completions"]
     API_TYPE = "default"
     API_TOKEN = "none"
     PROMPTS_FILE = "prompts.txt"
-    MAX_CONCURRENT_REQUESTS = 2000
+    MAX_CONCURRENT_REQUESTS = 200
     TIMEOUT = 3600
-    BATCH_SIZE = 10000
+    BATCH_SIZE = 1000
     ID_KEY = "id" 
+    # 可通过环境变量 REPROCESS_FAILED=1 打开（优先级高于下行常量）
+    REPROCESS_FAILED = False  # 设置为 True 可重新处理历史失败项
+    env_flag = os.getenv("REPROCESS_FAILED")
+    if env_flag is not None:
+        REPROCESS_FAILED = env_flag.strip() in ("1", "true", "True", "YES", "yes")
     
     asyncio.run(main(
         strategy=STRATEGY,
@@ -230,5 +261,6 @@ if __name__ == "__main__":
         timeout=TIMEOUT,
         # 传递新增的配置
         batch_size=BATCH_SIZE,
-        id_key=ID_KEY
+        id_key=ID_KEY,
+        reprocess_failed=REPROCESS_FAILED,
     ))

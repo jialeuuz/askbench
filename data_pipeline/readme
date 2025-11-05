@@ -1,0 +1,159 @@
+# 数据构建流水线（Data Pipeline）
+
+一个基于异步并发与可插拔策略（strategies）的数据构建流水线，用于从原始问答样本生成多轮对话训练数据，或直接答案+修正的数据。支持：
+- 大文件 JSONL 的流式读取，避免内存爆炸
+- 断点续跑：自动跳过已处理（成功/失败）样本
+- 批量并发调用自定义 Chat Completions 接口
+- 失败样本记录与持久化，便于后续重跑
+
+
+## 目录结构
+- `main.py`：主入口。读取输入、批调 API、断点续跑、分批保存
+- `strategies.py`：核心策略实现（多轮对话、直接回答+修正等）
+- `post_api.py`：自定义 API 客户端（OpenAI Chat Completions 兼容）
+- `prompt_loader.py`：加载 `prompts.txt` 中的模板
+- `prompts.txt`：所有 Prompt 模板（以 `template_` 开头）
+- `main_queue.py`、`run_queue.sh`：多任务并行调度（可选）
+- `tools/`：JSONL 合并、采样、转换的小工具
+- `utils/`：通用 API 基类与 URL 健康检查
+
+
+## 环境准备
+- Python 3.9+
+- 安装依赖：
+  - `pip install -r requirements.txt`
+  - 依赖：`requests`、`aiohttp`、`tqdm`
+- 需要可用的 Chat Completions API（OpenAI 兼容返回：`choices[0].message.content`）
+
+
+## 输入与输出格式
+输入文件：JSONL，每行一个样本，建议至少包含：
+```json
+{
+  "id": "可选；缺失时自动按内容生成确定性哈希ID",
+  "ori_question": "原始问题",
+  "expected_answer": "标准答案",
+  "solution": "可选，解析/思路；用于强制修正时参考"
+}
+```
+
+输出文件：JSONL（成功样本）。不同策略输出字段不同，常见字段：
+- `conversation_history`：多轮对话列表，元素如 `{ "role": "user|assistant", "content": "..." }`
+- `degraded_question`、`degraded_info`、`required_points`：策略内部生成的劣化问题/缺失点
+
+失败文件：与输出同名追加 `_failed` 后缀，JSONL。每条含 `_failure` 元信息：
+```json
+"_failure": {
+  "step": "失败步骤名",
+  "reason": "失败原因/解析异常",
+  "attempts": 2,
+  "response_preview": "可选，截断的模型回复"
+}
+```
+
+
+## 如何运行（单任务）
+编辑 `main.py` 末尾的常量，或在其他脚本中调用 `main()`：
+
+关键参数：
+- `STRATEGY`：策略名（见下文）
+- `INPUT_FILE`：输入 JSONL 路径
+- `OUTPUT_FILE`：输出 JSONL 路径（失败样本将写入同名 `_failed.jsonl`）
+- `API_URLS`：Chat Completions 接口列表（并发轮询）
+- `API_TYPE`：模型名/类型，传给服务端 `model` 字段
+- `API_TOKEN`：可选鉴权 Token
+- `PROMPTS_FILE`：Prompt 模板文件，默认 `prompts.txt`
+- `MAX_CONCURRENT_REQUESTS`：最大并发请求数
+- `TIMEOUT`：单请求最大超时秒数
+- `BATCH_SIZE`：分批大小（建议按服务端限流配置合理设置）
+- `ID_KEY`：样本唯一键名，默认 `id`
+- `REPROCESS_FAILED`：是否重跑历史失败样本（默认否）。也可用环境变量控制：`REPROCESS_FAILED=1`。
+
+示例（直接运行 `main.py` 内置配置）：
+```bash
+python main.py
+```
+
+示例（在你自己的脚本中调用）：
+```python
+import asyncio
+from main import main
+
+asyncio.run(main(
+    strategy="generate_multi_turn_training_data",
+    input_file="/path/to/input.jsonl",
+    output_file="/path/to/output.jsonl",
+    prompts_file="prompts.txt",
+    api_urls=["http://host:port/v1/chat/completions"],
+    api_type="default",
+    api_token="none",
+    max_concurrent_requests=200,
+    timeout=3600,
+    batch_size=1000,
+    id_key="id",
+    reprocess_failed=False,
+))
+```
+
+
+## 策略说明（strategies）
+当前内置策略均返回二元组：(成功样本列表, 失败样本列表)。
+
+1) `generate_degraded_question_and_info`
+- 输入：`ori_question`、`expected_answer`
+- 输出：为每条样本生成 `degraded_question`、`degraded_info`、`required_points`
+- 常作为其他策略的前置步骤
+
+2) `generate_multi_turn_training_data`
+- 目标：生成完整多轮对话（含追问、用户模拟、覆盖自检、答案生成与判定、强制修正）
+- 每一轮的顺序：
+  - 先问（首问/追问；最后一轮“合并问全”）
+  - 用户模拟回复
+  - 覆盖自检（all_covered / missing）
+  - 未覆盖：进入下一轮（最后一轮直接强制修正）
+  - 已覆盖：生成最终答案 → Judge（三分流：正确/追问不足/推理错误）
+- 当 `solution` 存在时，在强制修正阶段会作为参考信息拼接到 Prompt 中
+
+3) `strategy_direct_answer_and_correct`
+- 目标：先直接生成答案，再判断；若错误则基于 `expected_answer` 和可选 `solution` 重构为“完美答案”，输出最终对话
+- 流程更短，适用于无需多轮追问的场景
+
+
+## Prompt 模板
+模板统一放在 `prompts.txt`，格式：
+```
+template_xxx = '''
+...你的模板内容...
+'''
+```
+主要模板名（部分）：
+- `template_generate_degraded_question_and_info`
+- `template_assistant_ask_first_question`
+- `template_assistant_ask_follow_up_question`
+- `template_assistant_ask_all_remaining`
+- `template_simulate_user_reply`
+- `template_coverage_check`
+- `template_generate_final_answer`
+- `template_judge_answer`
+- `template_direct_answer`
+- `template_judge_direct_answer`
+- `template_reconstruct_answer`
+
+
+## 并行调度（可选）
+- `run_queue.sh` + `main_queue.py` 支持配置多条“串行任务队列”，并在进程级并行执行多个队列。
+- 使用前请在 `run_queue.sh` 中按需填写每个任务的 JSON（策略、输入/输出、API_URLS 等）。
+- 注意：`main.py` 已支持 `batch_size`、`id_key`、`reprocess_failed` 等新参数；如需在队列调度中使用，请同步扩展 `main_queue.py` 的参数传递逻辑。
+
+
+## 常见问题
+- 程序秒退且无新增输出？
+  - 可能全部样本已在输出或失败文件中处理过。开启 `REPROCESS_FAILED=1` 可重跑失败项。
+- 解析失败较多？
+  - 检查服务端返回是否是标准的 Chat Completions 结构；或根据日志里的 `response_preview` 调整 Prompt。
+- 429/限流？
+  - 降低 `MAX_CONCURRENT_REQUESTS`，减小 `BATCH_SIZE`，或按需增加 `API_URLS`。
+
+
+## 免责声明
+请确保你已获得调用目标 API 的授权，并遵守相关服务条款与安全规范。

@@ -7,6 +7,32 @@ from post_api import CustomAPI
 # ---------------------------------------------------------------------------
 # 辅助函数
 # ---------------------------------------------------------------------------
+def _safe_format(template: str, variables: Dict[str, Any]) -> str:
+    """仅替换已知占位符 {key}，保留其他花括号为字面量。
+    这样可避免模板中的 JSON 示例触发 str.format 的 KeyError。
+    """
+    if not variables:
+        return template
+    # 构造正则，仅匹配 {key} 形式，key 限定在 variables 中
+    pattern = re.compile(r"\{(" + "|".join(re.escape(k) for k in variables.keys()) + r")\}")
+    return pattern.sub(lambda m: str(variables.get(m.group(1), "")), template)
+def _clean_for_failure(item: Dict[str, Any]) -> Dict[str, Any]:
+    clean_item = item.copy()
+    clean_item.pop('degraded_question', None)
+    clean_item.pop('degraded_info', None)
+    clean_item.pop('conversation_history', None)
+    clean_item.pop('temp_answer', None)
+    clean_item.pop('generated_answer', None)
+    clean_item.pop('solution_section', None)
+    return clean_item
+
+def _attach_failure_meta(item: Dict[str, Any], step: str, reason: str, attempts: int = 0, response_preview: Optional[str] = None) -> Dict[str, Any]:
+    clean_item = _clean_for_failure(item)
+    meta = {"step": step, "reason": reason, "attempts": attempts}
+    if response_preview:
+        meta["response_preview"] = response_preview
+    clean_item["_failure"] = meta
+    return clean_item
 def _parse_llm_json_response(raw_response: str) -> Tuple[Optional[Dict[str, Any]], Optional[Exception]]:
     try:
         json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
@@ -16,6 +42,23 @@ def _parse_llm_json_response(raw_response: str) -> Tuple[Optional[Dict[str, Any]
         if 'degraded_question' in parsed_json and 'degraded_info' in parsed_json:
             return parsed_json, None
         raise KeyError("JSON对象中缺少 'degraded_question' 或 'degraded_info' 键")
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        return None, e
+
+def _parse_coverage_json_response(raw_response: str) -> Tuple[Optional[Dict[str, Any]], Optional[Exception]]:
+    try:
+        json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
+        if not json_match:
+            raise ValueError("在 覆盖自检 回复中未找到JSON对象")
+        json_string = json_match.group(0)
+        parsed_json = json.loads(json_string)
+        if 'all_covered' in parsed_json and 'missing' in parsed_json:
+            if not isinstance(parsed_json['all_covered'], bool):
+                raise ValueError("'all_covered' 必须为布尔值")
+            if not isinstance(parsed_json['missing'], list):
+                raise ValueError("'missing' 必须为数组")
+            return parsed_json, None
+        raise KeyError("JSON对象中缺少 'all_covered' 或 'missing' 键")
     except (json.JSONDecodeError, ValueError, KeyError) as e:
         return None, e
 
@@ -51,7 +94,11 @@ async def _run_batch_step_with_retry(
     print(f"  - {step_name}: 开始处理 {len(items)} 项...")
     item_indices_to_process = list(range(len(items)))
     successful_results = {}
+    failure_reasons = {}
+    last_response_preview = {}
+    attempt_counts = {i: 0 for i in range(len(items))}
 
+    debug_logged = 0
     for attempt in range(max_retries + 1):
         if not item_indices_to_process: break
         if attempt > 0:
@@ -65,10 +112,18 @@ async def _run_batch_step_with_retry(
                 format_args = {key: items[index][key] for key in prompt_format_keys}
                 if 'conversation_history' in format_args:
                     format_args['conversation_history'] = json.dumps(format_args['conversation_history'], ensure_ascii=False, indent=2)
-                prompts_for_this_batch.append(prompt_template.format(**format_args))
+                if 'required_points' in format_args and not isinstance(format_args['required_points'], str):
+                    try:
+                        format_args['required_points'] = json.dumps(format_args['required_points'], ensure_ascii=False, indent=2)
+                    except Exception:
+                        format_args['required_points'] = str(format_args['required_points'])
+                # 使用安全替换，避免模板中的 JSON 花括号触发 KeyError
+                prompts_for_this_batch.append(_safe_format(prompt_template, format_args))
                 valid_indices_for_batch.append(index)
             except KeyError as e:
+                # 记录格式化缺失键导致的失败原因
                 successful_results[index] = (items[index], None)
+                failure_reasons[index] = f"prompt_format_key_error: {str(e)}"
         
         item_indices_to_process = [idx for idx in item_indices_to_process if idx in valid_indices_for_batch]
         if not prompts_for_this_batch: continue
@@ -76,6 +131,10 @@ async def _run_batch_step_with_retry(
         try:
             responses, _, _ = await api_client.infer_batch_async(messages=prompts_for_this_batch, **api_params)
         except Exception as e:
+            # 记录本轮批量 API 错误，对所有仍待处理的索引记一次失败
+            for idx in item_indices_to_process:
+                attempt_counts[idx] += 1
+                failure_reasons[idx] = f"api_error: {repr(e)}"
             continue
 
         failed_indices_for_next_round = []
@@ -85,6 +144,13 @@ async def _run_batch_step_with_retry(
             if error is None:
                 successful_results[original_item_index] = (items[original_item_index], parsed_result)
             else:
+                if debug_logged < 3:
+                    preview = str(raw_response)[:400].replace("\n", " ")
+                    print(f"    解析失败示例[{debug_logged+1}]: {preview}")
+                    debug_logged += 1
+                attempt_counts[original_item_index] += 1
+                failure_reasons[original_item_index] = f"parse_error: {repr(error)}"
+                last_response_preview[original_item_index] = str(raw_response)[:400]
                 failed_indices_for_next_round.append(original_item_index)
         item_indices_to_process = failed_indices_for_next_round
 
@@ -103,6 +169,15 @@ async def _run_batch_step_with_retry(
             clean_item.pop('temp_answer', None)
             clean_item.pop('generated_answer', None)
             clean_item.pop('solution_section', None) # 确保这个临时字段也被移除
+            # 追加失败元信息，便于后续定位问题
+            meta = {
+                "step": step_name,
+                "reason": failure_reasons.get(i, "unknown"),
+                "attempts": attempt_counts.get(i, 0)
+            }
+            if i in last_response_preview:
+                meta["response_preview"] = last_response_preview[i]
+            clean_item["_failure"] = meta
             final_failed.append(clean_item)
             
     if final_failed:
@@ -118,7 +193,7 @@ async def generate_degraded_question_and_info(
     """返回 (成功项列表, 失败项列表)"""
     step_name = "步骤 1: 生成劣化问题和信息"
     prompt_template = templates['template_generate_degraded_question_and_info']
-    api_params = {'max_tokens': 16000, 'temperature': 0.7}
+    api_params = {'max_tokens': 16000, 'temperature': 0.2}
     successful_results, failed_items = await _run_batch_step_with_retry(
         api_client, data, step_name, prompt_template,
         ['ori_question', 'expected_answer'],
@@ -128,6 +203,11 @@ async def generate_degraded_question_and_info(
     for item, parsed_json in successful_results:
         item['degraded_question'] = parsed_json['degraded_question']
         item['degraded_info'] = parsed_json['degraded_info']
+        # 保存结构化缺失点清单（若存在）；否则给一个空清单，确保后续模板格式化安全
+        if isinstance(parsed_json, dict) and 'required_points' in parsed_json:
+            item['required_points'] = parsed_json['required_points']
+        else:
+            item['required_points'] = []
         processed_successful_items.append(item)
     return processed_successful_items, failed_items
 
@@ -138,7 +218,7 @@ async def generate_multi_turn_training_data(
     api_client: CustomAPI,
     data: List[Dict[str, Any]],
     templates: Dict[str, str],
-    max_ask_loops: int = 3,
+    max_ask_loops: int = 4,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]: # ### 优化点 1 改动 ###: 修改返回类型
     """
     策略：构建一个完整的多轮对话，并根据优化要求进行调整。
@@ -170,10 +250,16 @@ async def generate_multi_turn_training_data(
         print(f"\n{'='*20} 对话轮次 {current_loop + 1} (处理 {round_start_count} 项) {'='*20}")
 
         # --- 步骤 2: 批量生成澄清问题 ---
-        tpl_name = 'template_assistant_ask_first_question' if current_loop == 0 else 'template_assistant_ask_follow_up_question'
+        # 最后一轮使用“合并询问所有剩余点”的模板；首轮用 first，其余用 follow_up
+        if current_loop == 0:
+            tpl_name = 'template_assistant_ask_first_question'
+        elif current_loop == max_ask_loops - 1:
+            tpl_name = 'template_assistant_ask_all_remaining'
+        else:
+            tpl_name = 'template_assistant_ask_follow_up_question'
         ask_results, failed_ask = await _run_batch_step_with_retry(
             api_client, items_to_process, "步骤 2: 生成澄清问题", templates[tpl_name],
-            ['degraded_question', 'degraded_info', 'conversation_history'],
+            ['degraded_question', 'degraded_info', 'conversation_history', 'required_points'],
             lambda r: (r, None), {'max_tokens': 2048, 'temperature': 0.5}
         )
         total_discarded_items.extend(failed_ask)
@@ -194,11 +280,65 @@ async def generate_multi_turn_training_data(
         for item, response in reply_results:
             item['conversation_history'].append({"role": "user", "content": response})
 
+        # --- 步骤 3.5: 覆盖自检（作答前资格检查） ---
+        pre_next_round_items = []
+        pre_force_correct_items = []
+        coverage_results, failed_coverage = await _run_batch_step_with_retry(
+            api_client, items_to_process, "步骤 3.5: 覆盖自检", templates['template_coverage_check'],
+            ['conversation_history', 'required_points'],
+            _parse_coverage_json_response, {'max_tokens': 512, 'temperature': 0.0}
+        )
+        # 将解析失败的样本视为未覆盖（保守处理）
+        for failed_item in failed_coverage:
+            if current_loop == max_ask_loops - 1:
+                pre_force_correct_items.append(failed_item)
+            else:
+                pre_next_round_items.append(failed_item)
+        # 根据自检结果分流
+        items_ready_to_answer = []
+        for item, cov in coverage_results:
+            if cov.get('all_covered') is True:
+                items_ready_to_answer.append(item)
+            else:
+                if current_loop == max_ask_loops - 1:
+                    pre_force_correct_items.append(item)
+                else:
+                    pre_next_round_items.append(item)
+
+        # 如果没有任何可作答样本，则根据分流直接进行下一步
+        if not items_ready_to_answer:
+            # 最后一轮：对未覆盖的直接强制修正
+            if pre_force_correct_items:
+                print("覆盖自检后进入强制修正（最后一轮）...")
+                for it in pre_force_correct_items:
+                    if it.get('solution'):
+                        it['solution_section'] = f"\n# Detailed Solution for Reference:\n{it['solution']}\n"
+                    else:
+                        it['solution_section'] = ""
+                force_correct_results, failed_force = await _run_batch_step_with_retry(
+                    api_client, pre_force_correct_items, "步骤 6: 强制修正答案",
+                    templates['template_force_correct_answer'],
+                    ['conversation_history', 'expected_answer', 'solution_section'],
+                    lambda r: (r, None), {'max_tokens': 8192, 'temperature': 0.2}
+                )
+                for it, corrected_answer in force_correct_results:
+                    it['conversation_history'].append({"role": "assistant", "content": corrected_answer})
+                    completed_items.append(it)
+                if failed_force:
+                    total_discarded_items.extend(failed_force)
+            # 进入下一轮或结束当前循环
+            items_to_process = pre_next_round_items
+            current_loop += 1
+            continue
+
+        # 将通过自检的样本作为本轮后续步骤的处理对象
+        items_to_process = items_ready_to_answer
+
         # --- 步骤 4: 批量生成最终答案 ---
         answer_results, failed_answer = await _run_batch_step_with_retry(
             api_client, items_to_process, "步骤 4: 生成最终答案", templates['template_generate_final_answer'],
             ['conversation_history'],
-            lambda r: (r, None), {'max_tokens': 8192, 'temperature': 0.7}
+            lambda r: (r, None), {'max_tokens': 8192, 'temperature': 0.2}
         )
         total_discarded_items.extend(failed_answer)
         if not answer_results: break
@@ -213,15 +353,16 @@ async def generate_multi_turn_training_data(
         
         judge_results, failed_judge = await _run_batch_step_with_retry(
             api_client, items_to_process, "步骤 5: 判断答案", templates['template_judge_answer'],
-            ['conversation_history', 'generated_answer', 'expected_answer', 'degraded_info'],
+            ['conversation_history', 'generated_answer', 'expected_answer', 'degraded_info', 'required_points'],
             _parse_judge_json_response, {'max_tokens': 1024, 'temperature': 0.0}
         )
         total_discarded_items.extend(failed_judge)
         if not judge_results: break
         
         # --- 分流逻辑 (无变化) ---
-        next_round_items = []
-        items_to_force_correct = []
+        # 将自检未覆盖的样本纳入下一轮或强制修正集合
+        next_round_items = pre_next_round_items.copy()
+        items_to_force_correct = pre_force_correct_items.copy()
         current_round_completed_count = 0
 
         for item, judgement in judge_results:
@@ -230,7 +371,11 @@ async def generate_multi_turn_training_data(
                 current_round_completed_count += 1
             elif judgement['reason'] == 'insufficient_asking':
                 item['conversation_history'].pop()
-                next_round_items.append(item)
+                # 最后一轮不再进入下一轮追问，直接进入强制修正
+                if current_loop == max_ask_loops - 1:
+                    items_to_force_correct.append(item)
+                else:
+                    next_round_items.append(item)
             else:
                 item['conversation_history'].pop()
                 items_to_force_correct.append(item)
@@ -254,7 +399,7 @@ async def generate_multi_turn_training_data(
                 templates['template_force_correct_answer'],
                 # ### 优化点 2 改动 ###: 添加新键
                 ['conversation_history', 'expected_answer', 'solution_section'],
-                lambda r: (r, None), {'max_tokens': 8192, 'temperature': 0.7}
+                lambda r: (r, None), {'max_tokens': 8192, 'temperature': 0.2}
             )
             for item, corrected_answer in force_correct_results:
                 item['conversation_history'].append({"role": "assistant", "content": corrected_answer})
@@ -272,7 +417,12 @@ async def generate_multi_turn_training_data(
 
     if items_to_process:
         print(f"\n达到最大追问次数({max_ask_loops})，剩余 {len(items_to_process)} 项将被丢弃。")
-        total_discarded_items.extend(items_to_process)
+        # 为这些未完成样本补充失败元信息
+        enriched = [
+            _attach_failure_meta(it, step="循环结束", reason="max_loops_reached", attempts=0)
+            for it in items_to_process
+        ]
+        total_discarded_items.extend(enriched)
 
     print("\n============================================================")
     print("所有数据条目处理完毕。")
