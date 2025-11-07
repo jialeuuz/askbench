@@ -28,6 +28,10 @@ async def run_ask_evaluation(config):
     if not config.has_section('evaluatorconfig'):
         raise ValueError("AskBench 评测需要 [evaluatorconfig] 部分来配置Judge模型和最大轮次。")
     evaluator_config = get_evaluator_config(config)
+
+    # AskBench 同样支持多次尝试，默认尝试 1 次
+    n_attempts = int(generate_config.get("n_attempts", 1))
+    print(f"评估每个问题将尝试 {n_attempts} 次")
     
     # 从配置中获取最大对话轮次，提供一个默认值
     max_turns = config.getint("evaluatorconfig", "max_turns", fallback=5) # 默认5轮
@@ -60,7 +64,7 @@ async def run_ask_evaluation(config):
     examples = loader.load_data()
     
     print(f"已加载 {len(examples)} 个评测样本。")
-    print("数据格式要求: 'degraded_question', 'ori_question', 'expected_answer', 'degraded_info'")
+    print("数据格式要求: 'degraded_question', 'ori_question', 'expected_answer', 'degraded_info', 'required_points'")
 
     # 5. 实例化评测器
     print(f"正在使用 EVALUATOR_MAP 中的 '{evalset_name}' 评测器...")
@@ -78,31 +82,84 @@ async def run_ask_evaluation(config):
     start_time = datetime.now()
     print(f"\n开始评估 {evalset_name} - {model_config['task_name']}")
 
-    # 6. [核心] 调用多轮对话评测方法
-    final_accuracy, all_scores, log = await evaluator.evaluate_multi_turn(
-        args=argparse.Namespace(save_dir=save_dir),
-        test_data=examples,
-        max_turns=max_turns
-    )
+    attempt_accuracies = []
+    attempt_logs = []
+
+    for attempt_idx in range(n_attempts):
+        print(f"\n---- 正在执行第 {attempt_idx + 1}/{n_attempts} 次尝试 ----")
+        attempt_start = datetime.now()
+        attempt_save_dir = save_dir if n_attempts == 1 else os.path.join(save_dir, f"attempt_{attempt_idx + 1}")
+        os.makedirs(attempt_save_dir, exist_ok=True)
+
+        final_accuracy, all_scores, log = await evaluator.evaluate_multi_turn(
+            args=argparse.Namespace(save_dir=attempt_save_dir),
+            test_data=examples,
+            max_turns=max_turns
+        )
+
+        attempt_end = datetime.now()
+        attempt_duration = attempt_end - attempt_start
+
+        attempt_accuracies.append(final_accuracy)
+        attempt_logs.append(log)
+        # all_scores 当前未用于汇总，但保留该返回以便后续扩展（如计算 pass@k）
+
+        print(f"第 {attempt_idx + 1} 次尝试准确率: {final_accuracy:.4f}")
+
+        if n_attempts > 1:
+            attempt_result_file = os.path.join(attempt_save_dir, "results.txt")
+            with open(attempt_result_file, 'w', encoding='utf-8') as f:
+                f.write(f"评估集: {evalset_name}\n")
+                f.write(f"任务名称: {model_config['task_name']}\n")
+                f.write(f"尝试编号: {attempt_idx + 1}/{n_attempts}\n")
+                f.write(f"AskBench Final Accuracy: {final_accuracy:.4f}\n")
+                f.write(f"开始时间: {attempt_start.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"结束时间: {attempt_end.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"总耗时: {attempt_duration}\n\n")
+                f.write(log)
 
     # 7. 记录最终结果
     end_time = datetime.now()
     duration = end_time - start_time
 
+    average_accuracy = sum(attempt_accuracies) / len(attempt_accuracies) if attempt_accuracies else 0.0
+    attempt_accuracy_str = ", ".join(f"{acc:.4f}" for acc in attempt_accuracies)
+
     result_file = os.path.join(save_dir, "results.txt")
     with open(result_file, 'w', encoding='utf-8') as f:
         f.write(f"评估集: {evalset_name}\n")
         f.write(f"任务名称: {model_config['task_name']}\n")
-        f.write(f"最终正确率 (Accuracy): {final_accuracy:.4f}\n")
+        if n_attempts > 1:
+            f.write(f"平均准确率 (尝试次数为{n_attempts}): {average_accuracy:.4f}\n")
+            f.write(f"各次尝试准确率: {attempt_accuracy_str}\n")
+        else:
+            f.write(f"最终正确率 (Accuracy): {average_accuracy:.4f}\n")
         f.write(f"开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"总耗时: {duration}\n\n")
-        f.write(log)
+        for idx, log in enumerate(attempt_logs):
+            if n_attempts > 1:
+                f.write(f"===== 第 {idx + 1} 次尝试日志 =====\n")
+            f.write(log)
+            if not log.endswith("\n"):
+                f.write("\n")
+            if idx != len(attempt_logs) - 1:
+                f.write("\n")
 
-    print(f"\n评估完成，简洁结果已保存到: {result_file}")
+    print(f"\n评估完成，汇总结果已保存到: {result_file}")
+    if n_attempts > 1:
+        print(f"平均准确率 (尝试次数为{n_attempts}): {average_accuracy:.4f}")
+        print(f"各次尝试准确率: {attempt_accuracy_str}")
+    else:
+        print(f"最终正确率 (Accuracy): {average_accuracy:.4f}")
     print(f"总耗时: {duration}")
     print("-" * 30)
-    print(log)
+    for idx, log in enumerate(attempt_logs):
+        if n_attempts > 1:
+            print(f"===== 第 {idx + 1} 次尝试日志 =====")
+        print(log)
+        if n_attempts > 1 and idx != len(attempt_logs) - 1:
+            print("-" * 30)
     print("-" * 30)
     
     return save_dir

@@ -232,6 +232,14 @@ async def main(
 
 
 if __name__ == "__main__":
+    # 可选策略（均返回: 成功样本列表, 失败样本列表）：
+    # - "generate_degraded_question_and_info":
+    #     生成劣化问题(degraded_question)、劣化信息(degraded_info)与缺失点清单(required_points)，
+    #     常作为其他策略的前置步骤。
+    # - "generate_multi_turn_training_data":
+    #     生成完整多轮对话：追问 → 用户模拟 → 覆盖自检 → 最终答案 → Judge 分流 → 强制修正（必要时）。
+    # - "strategy_direct_answer_and_correct":
+    #     直接生成答案并判断；若错误则基于 expected_answer 与可选 solution 重构为“完美答案”，输出最终对话。
     STRATEGY = "generate_multi_turn_training_data"
     INPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/sample_medmcqa_2k_clear.jsonl"
     OUTPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/yitu/sample_medmcqa_2k_ask.jsonl"

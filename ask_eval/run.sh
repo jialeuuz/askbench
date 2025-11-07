@@ -13,12 +13,12 @@ DEFAULT_RESULTS_ROOT="results"
 
 # [必需] 模型的 API URL
 API_URL="http://10.80.13.48:8012/v1/chat/completions"
-# [必需] 逗号分隔的任务列表 (math500,medqa,aime2025,aime2025_de,math500_de,medqa_de,ask_yes,ask_mind,ask_lone)
-# math500,medqa,aime2025,
-# ask_mind_math500de,ask_mind_medqade,ask_mind_aime2025de,ask_mind_gpqade,ask_mind_bbhde
+# [必需] 逗号分隔的任务列表 (math500,math500_de,medqa,medqa_de,ask_yes,ask_mind,ask_mind_math500de,ask_mind_medqade,ask_mind_gpqade,ask_mind_bbhde,ask_lone,ask_lone_math500de,ask_lone_medqade,ask_lone_gpqade,ask_lone_bbhde,quest_bench)
+# math500,medqa,
+# ask_mind_math500de,ask_mind_medqade,ask_mind_gpqade,ask_mind_bbhde
 # quest_bench
 # math500,medqa,ask_mind_math500de,ask_mind_medqade,quest_bench
-TASKS="math500,aime2025"
+TASKS="math500"
 # [可选] 手动指定结果保存目录。若不指定，将根据模型和任务自动生成。
 SAVE_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/bak/results/qwen25_7b_17k_math_160step"
 # SAVE_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/results/qwen3_8b"

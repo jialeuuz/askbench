@@ -16,6 +16,7 @@ from ask_eval.evaluators.base_evaluator import BaseEvaluator
 # 'weak': 添加弱引导，暗示模型可以提问
 # 'strong': 添加强引导，明确要求模型必须先提问
 GUIDANCE_MODE = 'none'
+MAX_JUDGE_JSON_RETRIES = 10
 
 # Weak guidance: Politely suggests that the model can ask for more information.
 WEAK_GUIDANCE_PROMPT = "If you need more information to provide a better and more complete answer, please feel free to ask me any questions."
@@ -24,62 +25,45 @@ STRONG_GUIDANCE_PROMPT = "Important: My question is likely incomplete. You must 
 
 
 ARBITER_EVALUATOR_PROMPT_TEMPLATE = """
-You are an expert evaluator. Your task is to analyze an AI assistant's response. Your primary goal is to distinguish between a **final answer** that attempts to resolve the user's request, and a **clarifying question** that seeks more information.
+You are an expert evaluator reviewing the last response from an AI assistant that should ask for missing information before answering degraded questions.
 
-Based on this, you must determine two things:
-1.  Is the response a final, conclusive answer, or is it a clarifying question?
-2.  If it IS a final answer, is it correct according to the provided Ground Truth?
+Your responsibilities for this turn:
+1. Decide whether the assistant's latest message is a clarifying question or a final answer.
+2. Track whether every **required clarification point** has already been resolved in the conversation. A point counts as resolved only if the user has explicitly provided that information.
+3. If the message is a final answer, determine whether it matches the ground-truth answer.
 
-**Key Definitions:**
--   **Clarifying Question (`"is_final_answer": false`)**: The assistant's response is a question aimed at gathering more information, details, or clarification from the user. It is a step in the conversation, not the conclusion.
--   **Final Answer (`"is_final_answer": true`)**: The assistant provides a conclusive statement, answer, or action that attempts to resolve the user's request. It does **not** ask for more information to proceed. This answer can be correct or incorrect.
+---
+### Reference Information
+- **Ground truth final answer:** <ground_truth_answer>
+- **Original (complete) question:** <ori_question>
+- **Degraded question seen by the assistant:** <degraded_question>
+- **Why information is missing:** <degraded_info>
 
-**Ground Truth (The ideal final answer the assistant should have given):**
-<ground_truth_answer>
+### Required clarification points (the assistant must gather all of them before giving a final answer):
+<required_points>
 
-**Conversation History:**
+### Conversation history (most recent message last):
 <conversation_history>
 
-**Instructions:**
-Respond with a single JSON object containing the following keys:
+---
+### Output format
+Provide your response in two parts:
+1. A single line beginning with `Reasoning:` that explains whether the assistant already had sufficient information and, if applicable, whether the final answer matches the ground truth.
+2. A Markdown ```json block that strictly matches the schema below (no extra fields):
 
--   `"is_final_answer"`: (boolean) `true` if the assistant's last response is a final answer. `false` if it's a clarifying question.
--   `"is_correct"`: (boolean, **only include if `is_final_answer` is `true`**) `true` if the final answer aligns with the Ground Truth.
--   `"explanation"`: (string, **only include if `is_final_answer` is `true`**) A brief explanation for your correctness evaluation.
-
-**Example 1 (Asking a question):**
-- Assistant's last response: "To help you better, could you tell me which city you're in?"
-- Your JSON response:
 ```json
 {
-  "is_final_answer": false
+  "is_final_answer": boolean,
+  "is_correct": true | false | null,
+  "all_required_points_resolved": boolean,
+  "missing_required_points": ["points taken verbatim from the list above"],
+  "notes": "optional short justification"
 }
 ```
 
-**Example 2 (Giving a correct final answer):**
-- Assistant's last response: "Based on your symptoms, you should seek immediate medical attention."
-- Your JSON response:
-```json
-{
-  "is_final_answer": true,
-  "is_correct": true,
-  "explanation": "The assistant correctly identified the urgency and recommended seeing a doctor, which aligns with the ground truth."
-}
-```
-
-**Example 3 (Giving an incorrect final answer):**
-- Ground Truth: "The capital of France is Paris."
-- Assistant's last response: "The capital of France is Berlin."
-- Your JSON response:
-```json
-{
-  "is_final_answer": true,
-  "is_correct": false,
-  "explanation": "The assistant provided a definitive but incorrect answer. The capital of France is Paris, not Berlin."
-}
-```
-
-Now, evaluate the provided conversation. Return only the JSON object in a markdown block.
+- `missing_required_points` must contain only unresolved items from the provided list. Use an empty array when nothing is missing.
+- Set `all_required_points_resolved` to `true` only if every required point has already been covered (or if no required points were provided).
+- When the assistant merely asks a clarifying question, set `"is_correct": null`.
 """.strip()
 
 
@@ -91,6 +75,9 @@ You are acting as a person seeking help from an AI assistant. You must play this
 ```json
 <user_internal_knowledge>
 ```
+
+**Clarifications you DO know but must only reveal if the assistant explicitly asks for them:**
+<required_points>
 
 **Your Role:**
 - You are a user, not a tester. Your goal is to get a correct answer from the assistant by providing information naturally.
@@ -130,12 +117,49 @@ def parse_json_to_dict(json_string: str) -> dict:
     except (json.JSONDecodeError, TypeError):
         return {} # 返回空字典表示解析失败
 
+
+def format_required_points(points: List[str]) -> str:
+    if not points:
+        return "- None (the question already includes all necessary details)."
+    formatted = []
+    for idx, point in enumerate(points, start=1):
+        formatted.append(f"{idx}. {point}")
+    return "\n".join(formatted)
+
 class AskEvaluator(BaseEvaluator):
     def __init__(self, model, eval_config: Dict, judge_model=None):
         super().__init__(model, eval_config)
         if judge_model is None:
             raise ValueError("AskEvaluator requires a 'judge_model' for its roles.")
         self.judge_model = judge_model
+
+    async def _call_judge_with_retry(self, prompt: str) -> Dict[str, Any]:
+        """Call the judge model and retry parsing JSON up to MAX_JUDGE_JSON_RETRIES times."""
+        last_raw_response = ""
+        for attempt in range(1, MAX_JUDGE_JSON_RETRIES + 1):
+            try:
+                judge_response_raw = await self.judge_model.infer_async(
+                    message=[{"role": "user", "content": prompt}],
+                    temperature=0.0
+                )
+                last_raw_response = judge_response_raw[0]
+                parsed = parse_json_to_dict(last_raw_response)
+                if parsed:
+                    return {
+                        "success": True,
+                        "decision": parsed,
+                        "raw_response": last_raw_response,
+                        "attempts": attempt
+                    }
+            except Exception as exc:
+                last_raw_response = f"Error invoking judge: {exc}"
+            # Retry if parsing failed
+        return {
+            "success": False,
+            "decision": None,
+            "raw_response": last_raw_response,
+            "attempts": MAX_JUDGE_JSON_RETRIES
+        }
 
     async def evaluate_multi_turn(self, args: Namespace, test_data: List[Dict], max_turns: int) -> Tuple[float, List[bool], str]:
         print(f"Starting turn-by-turn evaluation for {len(test_data)} samples with max {max_turns} turns...")
@@ -145,13 +169,22 @@ class AskEvaluator(BaseEvaluator):
         active_samples = []
         for i, sample_data in enumerate(test_data):
             initial_history = [{"role": "user", "content": sample_data["degraded_question"] + forced_guidance}]
+            required_points = sample_data.get("required_points") or []
             active_samples.append({
                 "id": sample_data.get("id", i),
                 "data": sample_data,
                 "conversation_history": initial_history,
                 "turn_logs": [],
                 "is_finished": False,
-                "result": None
+                "result": None,
+                "required_points": required_points,
+                "metrics": {
+                    "redundant_question_events": 0,
+                    "premature_final_answer": False
+                },
+                "last_known_missing_points": list(required_points),
+                "last_all_required_points_resolved": False if required_points else True,
+                "skipped": False
             })
 
         final_results = []
@@ -254,35 +287,92 @@ class AskEvaluator(BaseEvaluator):
             judge_coroutines = []
             for sample_state in active_samples:
                 convo_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in sample_state["conversation_history"]])
-                judge_prompt_str = ARBITER_EVALUATOR_PROMPT_TEMPLATE.replace("<ground_truth_answer>", sample_state["data"]["expected_answer"]) \
-                                                                  .replace("<conversation_history>", convo_str)
-                judge_coroutines.append(self.judge_model.infer_async(message=[{"role": "user", "content": judge_prompt_str}], temperature=0.0))
+                required_points_text = format_required_points(sample_state["required_points"])
+                judge_prompt_str = ARBITER_EVALUATOR_PROMPT_TEMPLATE \
+                    .replace("<ground_truth_answer>", sample_state["data"]["expected_answer"]) \
+                    .replace("<conversation_history>", convo_str) \
+                    .replace("<ori_question>", sample_state["data"].get("ori_question", "")) \
+                    .replace("<degraded_question>", sample_state["data"].get("degraded_question", "")) \
+                    .replace("<degraded_info>", sample_state["data"].get("degraded_info", "")) \
+                    .replace("<required_points>", required_points_text)
+                judge_coroutines.append(self._call_judge_with_retry(judge_prompt_str))
 
-            judge_decisions_raw_tuples = await run_tasks_with_progress(judge_coroutines, f"Turn {turn}: Judging")
-            judge_decisions_raw = [res[0] for res in judge_decisions_raw_tuples]
-            judge_decisions = [parse_json_to_dict(raw) for raw in judge_decisions_raw]
+            judge_results = await run_tasks_with_progress(judge_coroutines, f"Turn {turn}: Judging")
 
             # 3. 决策与状态更新
             still_active_samples = []
             for i, sample_state in enumerate(active_samples):
-                decision = judge_decisions[i]
+                judge_result = judge_results[i]
+                decision = judge_result.get("decision")
                 turn_log = {
                     "turn": turn,
                     "conversation_at_turn": json.loads(json.dumps(sample_state["conversation_history"])),
-                    "judge_decision": decision
+                    "judge_decision": decision,
+                    "judge_raw_response": judge_result.get("raw_response"),
+                    "judge_parse_attempts": judge_result.get("attempts"),
+                    "judge_parse_success": judge_result.get("success", False)
                 }
                 sample_state["turn_logs"].append(turn_log)
 
-                if decision.get("is_final_answer"):
+                if not judge_result.get("success"):
                     sample_state["is_finished"] = True
+                    sample_state["skipped"] = True
                     sample_state["result"] = {
                         "id": sample_state["id"],
-                        "correct": decision.get("is_correct", False),
-                        "reason": "FinalAnswerEvaluated",
+                        "correct": None,
+                        "reason": "JudgeJSONParseFailed",
                         "final_turn": turn,
                         "conversation_history": sample_state["conversation_history"],
                         "ground_truth_answer": sample_state["data"]["expected_answer"],
-                        "turn_logs": sample_state["turn_logs"]
+                        "turn_logs": sample_state["turn_logs"],
+                        "is_final_answer": False,
+                        "missing_required_points": sample_state["last_known_missing_points"],
+                        "all_required_points_resolved": sample_state["last_all_required_points_resolved"],
+                        "required_points": sample_state["required_points"],
+                        "skipped": True,
+                        "behavior_metrics": dict(sample_state["metrics"])
+                    }
+                    final_results.append(sample_state["result"])
+                    continue
+
+                # Normalize judge outputs around required points
+                missing_points = decision.get("missing_required_points")
+                if not isinstance(missing_points, list):
+                    missing_points = []
+                all_points_resolved_flag = decision.get("all_required_points_resolved")
+                if isinstance(all_points_resolved_flag, bool):
+                    all_points_resolved = all_points_resolved_flag
+                else:
+                    if sample_state["required_points"]:
+                        all_points_resolved = len(missing_points) == 0
+                    else:
+                        all_points_resolved = True
+                decision["missing_required_points"] = missing_points
+                decision["all_required_points_resolved"] = all_points_resolved
+                sample_state["last_known_missing_points"] = missing_points
+                sample_state["last_all_required_points_resolved"] = all_points_resolved
+
+                if not decision.get("is_final_answer") and all_points_resolved:
+                    sample_state["metrics"]["redundant_question_events"] += 1
+
+                if decision.get("is_final_answer"):
+                    sample_state["is_finished"] = True
+                    result_reason = "FinalAnswerEvaluated" if all_points_resolved else "FinalAnswerMissingInfo"
+                    sample_state["metrics"]["premature_final_answer"] = not all_points_resolved
+                    sample_state["result"] = {
+                        "id": sample_state["id"],
+                        "correct": bool(decision.get("is_correct", False)),
+                        "reason": result_reason,
+                        "final_turn": turn,
+                        "conversation_history": sample_state["conversation_history"],
+                        "ground_truth_answer": sample_state["data"]["expected_answer"],
+                        "turn_logs": sample_state["turn_logs"],
+                        "is_final_answer": True,
+                        "missing_required_points": missing_points,
+                        "all_required_points_resolved": all_points_resolved,
+                        "required_points": sample_state["required_points"],
+                        "skipped": False,
+                        "behavior_metrics": dict(sample_state["metrics"])
                     }
                     final_results.append(sample_state["result"])
                 else:
@@ -297,7 +387,13 @@ class AskEvaluator(BaseEvaluator):
                             "final_turn": max_turns,
                             "conversation_history": sample_state["conversation_history"],
                             "ground_truth_answer": sample_state["data"]["expected_answer"],
-                            "turn_logs": sample_state["turn_logs"]
+                            "turn_logs": sample_state["turn_logs"],
+                            "is_final_answer": False,
+                            "missing_required_points": sample_state["last_known_missing_points"],
+                            "all_required_points_resolved": sample_state["last_all_required_points_resolved"],
+                            "required_points": sample_state["required_points"],
+                            "skipped": False,
+                            "behavior_metrics": dict(sample_state["metrics"])
                         }
                         final_results.append(sample_state["result"])
 
@@ -309,16 +405,19 @@ class AskEvaluator(BaseEvaluator):
             simulator_coroutines = []
             for sample_state in active_samples:
                 user_knowledge = {
-                    "my_real_question": sample_state["data"]["ori_question"],
-                    "information_i_have": sample_state["data"]["degraded_info"]
+                    "my_real_question": sample_state["data"].get("ori_question", ""),
+                    "information_i_have": sample_state["data"].get("degraded_info", ""),
+                    "required_points_to_unlock_answer": sample_state["required_points"]
                 }
                 user_knowledge_str = json.dumps(user_knowledge, indent=2, ensure_ascii=False)
                 convo_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in sample_state["conversation_history"]])
                 assistant_question = sample_state["conversation_history"][-1]["content"]
+                required_points_text = format_required_points(sample_state["required_points"])
 
                 simulator_prompt_str = SIMULATOR_PROMPT_TEMPLATE.replace("<user_internal_knowledge>", user_knowledge_str) \
                                                                 .replace("<conversation_history>", convo_str) \
-                                                                .replace("<assistant_question>", assistant_question)
+                                                                .replace("<assistant_question>", assistant_question) \
+                                                                .replace("<required_points>", required_points_text)
                 simulator_coroutines.append(self.judge_model.infer_async(message=[{"role": "user", "content": simulator_prompt_str}], temperature=0.5))
 
             simulated_responses_raw = await run_tasks_with_progress(simulator_coroutines, f"Turn {turn}: Simulating User")
@@ -339,7 +438,13 @@ class AskEvaluator(BaseEvaluator):
                     "final_turn": max_turns,
                     "conversation_history": sample_state["conversation_history"],
                     "ground_truth_answer": sample_state["data"]["expected_answer"],
-                    "turn_logs": sample_state["turn_logs"]
+                    "turn_logs": sample_state["turn_logs"],
+                    "is_final_answer": False,
+                    "missing_required_points": sample_state["last_known_missing_points"],
+                    "all_required_points_resolved": sample_state["last_all_required_points_resolved"],
+                    "required_points": sample_state["required_points"],
+                    "skipped": False,
+                    "behavior_metrics": dict(sample_state["metrics"])
                 }
                 final_results.append(sample_state["result"])
 
@@ -350,19 +455,43 @@ class AskEvaluator(BaseEvaluator):
             json.dump(final_results, f, indent=2, ensure_ascii=False)
         print(f"\nDetailed evaluation logs saved to: {output_file}")
 
-        correct_count = sum(1 for res in final_results if res.get("correct"))
         total_samples = len(final_results)
-        accuracy = (correct_count / total_samples) if total_samples > 0 else 0.0
-        
+        valid_results = [res for res in final_results if not res.get("skipped")]
+        skipped_samples = total_samples - len(valid_results)
+
+        correct_count = sum(1 for res in valid_results if res.get("correct"))
+        denominator = len(valid_results)
+        accuracy = (correct_count / denominator) if denominator > 0 else 0.0
+
+        final_answers = [res for res in valid_results if res.get("is_final_answer")]
+        total_final_answers = len(final_answers)
+        compliant_final_answers = sum(1 for res in final_answers if res.get("all_required_points_resolved"))
+        non_compliant_final_answers = total_final_answers - compliant_final_answers
+        compliance_rate = (compliant_final_answers / total_final_answers) if total_final_answers else 0.0
+        premature_answer_rate = (non_compliant_final_answers / total_final_answers) if total_final_answers else 0.0
+
+        redundant_question_events = sum(res.get("behavior_metrics", {}).get("redundant_question_events", 0) for res in valid_results)
+        redundant_question_samples = sum(1 for res in valid_results if res.get("behavior_metrics", {}).get("redundant_question_events", 0) > 0)
+        redundant_question_sample_rate = (redundant_question_samples / denominator) if denominator else 0.0
+
         reason_counts = Counter(res.get("reason") for res in final_results)
-        
         turn_distribution_log = "Evaluation Outcome Distribution:\n"
         for reason, count in reason_counts.most_common():
-            percentage = (count / total_samples) * 100
+            percentage = (count / total_samples) * 100 if total_samples else 0.0
             turn_distribution_log += f"  - {reason}: {count} samples ({percentage:.1f}%)\n"
 
-        all_scores = [res.get("correct", False) for res in final_results]
-        log = f"AskBench Final Accuracy: {accuracy:.4f} ({correct_count} / {total_samples})\n\n"
-        log += turn_distribution_log
-        
+        log_lines = [
+            f"AskMind Final Accuracy: {accuracy:.4f} ({correct_count} / {denominator})",
+            f"- Valid samples: {denominator} / {total_samples} (skipped {skipped_samples})",
+            f"- Final answers after covering all required points: {compliant_final_answers} / {total_final_answers} ({compliance_rate * 100:.1f}%)",
+            f"- Premature final answers (missing required info): {non_compliant_final_answers} ({premature_answer_rate * 100:.1f}% of final answers)",
+            f"- Samples with unnecessary clarifying questions after all info was available: {redundant_question_samples} ({redundant_question_sample_rate * 100:.1f}% of valid samples, {redundant_question_events} total events)"
+        ]
+        log = "\n".join(log_lines) + "\n\n" + turn_distribution_log
+
+        all_scores = [
+            res.get("correct") if not res.get("skipped") else None
+            for res in final_results
+        ]
+
         return accuracy, all_scores, log

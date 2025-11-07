@@ -210,7 +210,13 @@ def write_final_result_file(save_dir: str, task: str, task_name: str, final_file
     pass_at_1_pattern = r'Pass@1.*?:\s*(\d+\.\d+)'
     pass_at_n_pattern = r'Pass@(\d+).*?:\s*(\d+\.\d+)'
     avg_at_n_pattern = r'Avg@(\d+).*?:\s*(\d+\.\d+)'
-    legacy_acc_pattern = r'准确率:\s*(\d+\.\d+)'  # 兼容旧格式
+    accuracy_patterns = [
+        ("平均准确率", r'平均准确率.*?:\s*(\d+(?:\.\d+)?)', "AverageAccuracy"),
+        ("Avg Accuracy", r'Avg Accuracy.*?:\s*(\d+(?:\.\d+)?)', "AverageAccuracyEn"),
+        ("最终正确率", r'最终正确率.*?:\s*(\d+(?:\.\d+)?)', "FinalAccuracy"),
+        ("AskBench Final Accuracy", r'AskBench Final Accuracy:\s*(\d+(?:\.\d+)?)', "AskBenchFinalAccuracy"),
+        ("准确率", r'(?<!尝试)准确率:\s*(\d+(?:\.\d+)?)', "LegacyAccuracy"),
+    ]
     time_pattern = r"总耗时:\s*(\d+):(\d{2}):(\d{2}\.\d+)"
     
     # 使用集合来跟踪已添加的指标，避免重复
@@ -222,13 +228,6 @@ def write_final_result_file(save_dir: str, task: str, task_name: str, final_file
     if pass_at_1_match:
         metrics.append(f"Pass@1: {pass_at_1_match.group(1)}")
         added_metrics.add("Pass@1")
-    else:
-        # 尝试匹配旧格式的准确率
-        legacy_match = re.search(legacy_acc_pattern, content)
-        if legacy_match:
-            metrics.append(legacy_match.group(0))
-        else:
-            metrics.append("准确率: 未知")
     
     # 查找所有 Pass@n 匹配
     pass_at_n_matches = re.findall(pass_at_n_pattern, content)
@@ -246,6 +245,21 @@ def write_final_result_file(save_dir: str, task: str, task_name: str, final_file
         if metric_key not in added_metrics:  # 避免重复
             metrics.append(f"{metric_key}: {value}")
             added_metrics.add(metric_key)
+
+    # 处理准确率相关的其它格式
+    for label, pattern, metric_key in accuracy_patterns:
+        matches = re.findall(pattern, content)
+        if not matches:
+            continue
+        if metric_key in added_metrics:
+            continue
+        # 仅保留第一个匹配值，避免重复
+        value = matches[0]
+        metrics.append(f"{label}: {value}")
+        added_metrics.add(metric_key)
+
+    if not metrics:
+        metrics.append("准确率: 未知")
     
     # 查找总耗时
     time_match = re.search(time_pattern, content)
