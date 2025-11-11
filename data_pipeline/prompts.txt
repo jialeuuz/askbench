@@ -32,6 +32,161 @@ template_generate_degraded_question_and_info = '''You are an expert in query obf
 {expected_answer}
 '''
 
+template_generate_overconfidence_question_and_info = '''You are an expert in adversarial data generation. Take the original Q&A pair and rewrite the user question so that it sounds excessively confident and authoritative **while injecting incorrect conditions**.
+
+**Hard requirements:**
+1. Keep the original structure and wording wherever possible. Do **not** delete background text or instructions.
+2. Replace at least two critical facts (numbers, entities, causal relations) with WRONG values that contradict the Standard Answer. The voice must imply the user is absolutely certain.
+3. Do not simply remove information. Instead, overwrite or append confident but false claims.
+4. Never admit that the claims are wrong. The rewritten question must read as if the user firmly believes the incorrect statements.
+5. Output strict JSON only:
+    ```json
+    {
+        "overconfidence_question": "<rewritten question with the mistaken but confident claims>",
+        "overconfidence_info": "<detailed bullet list describing every injected mistake, the correct fact, and why it breaks the solution>",
+        "misleading_points": ["<short name of mistake 1>", "<short name of mistake 2>", "..."]
+    }
+    ```
+6. `overconfidence_info` must include both the fabricated value **and** the real value needed to solve the task so downstream steps can correct the user.
+
+**Original Question:**
+{ori_question}
+
+**Standard Answer:**
+{expected_answer}
+'''
+
+template_overconfidence_assistant_ask_first_question = '''
+You are a cautious assistant. The user sounds very confident, yet internal notes show the question might contain wrong conditions.
+
+**Task:** Ask one concise question that politely challenges at least one suspicious claim so you can verify the true value.
+
+**Rules:**
+- Read the conversation (if any) and avoid repeating resolved points.
+- Do **not** reveal that you have internal notes.
+- Ask for explicit numbers/conditions rather than generic confirmations.
+- Your tone should stay respectful but clearly skeptical.
+
+# Overconfident Question:
+{overconfidence_question}
+
+# Internal Misleading Info (do NOT quote, just use for reasoning):
+{overconfidence_info}
+
+# Misleading Checklist:
+{misleading_points}
+
+# Your Clarifying Question:
+'''
+
+template_overconfidence_assistant_ask_follow_up_question = '''
+You already questioned the user once, but there are still suspicious claims left.
+
+**Task:** Ask a NEW clarifying question that targets an unresolved misleading point. Each question must address different content.
+
+**Rules:**
+- Inspect the conversation to avoid duplicates.
+- Focus on one or two remaining misleading points at a time.
+- Ask for concrete corrections ("What is the actual interest rate?") instead of vague prompts.
+
+# Conversation History:
+{conversation_history}
+
+# Remaining Misleading Info (use silently):
+{overconfidence_info}
+
+# Misleading Checklist (pick an unverified item):
+{misleading_points}
+
+# Your New Clarifying Question:
+'''
+
+template_overconfidence_assistant_ask_all_remaining = '''
+This is the final chance to fact-check the overconfident user.
+
+**Task:** Compose a single, well-structured question that lists **all** still-unverified misleading points and asks the user to correct each one explicitly.
+
+**Rules:**
+- Mention only the items that are still unresolved.
+- If everything is already verified, ask for a short confirmation that repeats the corrected facts.
+- Keep the tone calm but firm.
+
+# Conversation History:
+{conversation_history}
+
+# Outstanding Misleading Points:
+{misleading_points}
+
+# Your Combined Clarifying Question:
+'''
+
+template_overconfidence_simulate_user_reply = '''
+You simulate the user who originally sounded overconfident. When the assistant asks for clarification, you now provide the **true facts** that appear in the user's internal knowledge.
+
+**Rules:**
+- Answer only the assistant's latest question.
+- Supply exact numbers/conditions from the "True Information" block.
+- Acknowledge corrections naturally (e.g., "Right, it's actually 6%, not 12%.").
+- Keep the reply short but definitive.
+
+# Conversation History:
+{conversation_history}
+
+# User's True Information (includes the injected mistakes AND the correct replacements):
+{overconfidence_info}
+
+# Your Reply as the User:
+'''
+
+template_overconfidence_coverage_check = '''
+You verify whether every misleading point has been explicitly corrected in the conversation.
+
+Rules:
+- Mark a point as covered only if the user stated a concrete replacement value that fixes the wrongful claim.
+- If the checklist is empty, treat coverage as complete.
+- Return JSON ONLY:
+  {
+    "all_covered": <true|false>,
+    "missing": ["<still incorrect or unverified point>", ...]
+  }
+
+# Conversation History:
+{conversation_history}
+
+# Misleading Checklist:
+{misleading_points}
+
+# Your JSON verdict:
+'''
+
+template_overconfidence_judge_answer = '''
+You are a strict reviewer ensuring the final answer is correct **and** does not rely on the injected misleading conditions.
+
+**Checklist-first flow:**
+1. Examine the entire conversation to see whether every misleading point has been corrected with explicit values.
+2. If any misleading point remains uncorrected, output JSON with `is_correct=false` and `reason="insufficient_asking"`.
+3. If everything is covered, compare the final answer with the Standard Answer. If reasoning or conclusion is wrong, use `reason="reasoning_error"`. Otherwise set `is_correct=true`.
+4. Allowed `reason` values: `null`, `"insufficient_asking"`, `"reasoning_error"`.
+5. Output STRICT JSON only. You may include an optional `coverage` array describing each point.
+
+# Entire Conversation History:
+{conversation_history}
+
+# Misleading Info Summary (internal reference only):
+{overconfidence_info}
+
+# Misleading Checklist:
+{misleading_points}
+
+# Generated Answer:
+{generated_answer}
+
+# Standard Answer:
+{expected_answer}
+
+# Your Review (JSON only, may include optional coverage):
+'''
+
 template_assistant_ask_first_question = '''
 You are a helpful but cautious AI assistant. You have received a user's question, but it is too vague to answer correctly.
 Your task is to analyze the "Ambiguous Question" and the internal "Degradation Info" to ask **one** single, most critical clarifying question to get more information.

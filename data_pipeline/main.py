@@ -236,11 +236,15 @@ if __name__ == "__main__":
     # - "generate_degraded_question_and_info":
     #     生成劣化问题(degraded_question)、劣化信息(degraded_info)与缺失点清单(required_points)，
     #     常作为其他策略的前置步骤。
-    # - "generate_multi_turn_training_data":
-    #     生成完整多轮对话：追问 → 用户模拟 → 覆盖自检 → 最终答案 → Judge 分流 → 强制修正（必要时）。
+    # - "generate_overconfidence_question_and_info":
+    #     构造过度自信但包含错误条件的问题(overconfidence_question)、纠错信息(overconfidence_info)与误导点(misleading_points)。
+    # - "generate_multi_turn_degraded_training_data":
+    #     生成劣化场景的完整多轮对话：追问 → 用户模拟 → 覆盖自检 → 最终答案 → Judge 分流 → 强制修正（必要时）。
+    # - "generate_multi_turn_overconfidence_training_data":
+    #     引导模型识别并纠正过度自信场景中的错误条件，再生成答案并判定。
     # - "strategy_direct_answer_and_correct":
     #     直接生成答案并判断；若错误则基于 expected_answer 与可选 solution 重构为“完美答案”，输出最终对话。
-    STRATEGY = "generate_multi_turn_training_data"
+    STRATEGY = "generate_multi_turn_degraded_training_data"
     INPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/sample_medmcqa_2k_clear.jsonl"
     OUTPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/yitu/sample_medmcqa_2k_ask.jsonl"
     API_URLS = ["http://10.80.128.219:9012/v1/chat/completions"]

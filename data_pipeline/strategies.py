@@ -1,7 +1,8 @@
 import json
 import re
 import asyncio
-from typing import List, Dict, Any, Tuple, Optional, Callable
+from functools import partial
+from typing import List, Dict, Any, Tuple, Optional, Callable, Awaitable
 from post_api import CustomAPI
 
 # ---------------------------------------------------------------------------
@@ -20,6 +21,9 @@ def _clean_for_failure(item: Dict[str, Any]) -> Dict[str, Any]:
     clean_item = item.copy()
     clean_item.pop('degraded_question', None)
     clean_item.pop('degraded_info', None)
+    clean_item.pop('overconfidence_question', None)
+    clean_item.pop('overconfidence_info', None)
+    clean_item.pop('misleading_points', None)
     clean_item.pop('conversation_history', None)
     clean_item.pop('temp_answer', None)
     clean_item.pop('generated_answer', None)
@@ -33,15 +37,15 @@ def _attach_failure_meta(item: Dict[str, Any], step: str, reason: str, attempts:
         meta["response_preview"] = response_preview
     clean_item["_failure"] = meta
     return clean_item
-def _parse_llm_json_response(raw_response: str) -> Tuple[Optional[Dict[str, Any]], Optional[Exception]]:
+def _parse_question_variant_json_response(raw_response: str, *, question_key: str, info_key: str) -> Tuple[Optional[Dict[str, Any]], Optional[Exception]]:
     try:
         json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
         if not json_match: raise ValueError("在回复中未找到JSON对象")
         json_string = json_match.group(0)
         parsed_json = json.loads(json_string)
-        if 'degraded_question' in parsed_json and 'degraded_info' in parsed_json:
+        if question_key in parsed_json and info_key in parsed_json:
             return parsed_json, None
-        raise KeyError("JSON对象中缺少 'degraded_question' 或 'degraded_info' 键")
+        raise KeyError(f"JSON对象中缺少 '{question_key}' 或 '{info_key}' 键")
     except (json.JSONDecodeError, ValueError, KeyError) as e:
         return None, e
 
@@ -194,10 +198,15 @@ async def generate_degraded_question_and_info(
     step_name = "步骤 1: 生成劣化问题和信息"
     prompt_template = templates['template_generate_degraded_question_and_info']
     api_params = {'max_tokens': 16000, 'temperature': 0.2}
+    question_parser = partial(
+        _parse_question_variant_json_response,
+        question_key='degraded_question',
+        info_key='degraded_info'
+    )
     successful_results, failed_items = await _run_batch_step_with_retry(
         api_client, data, step_name, prompt_template,
         ['ori_question', 'expected_answer'],
-        _parse_llm_json_response, api_params, max_retries
+        question_parser, api_params, max_retries
     )
     processed_successful_items = []
     for item, parsed_json in successful_results:
@@ -211,55 +220,87 @@ async def generate_degraded_question_and_info(
         processed_successful_items.append(item)
     return processed_successful_items, failed_items
 
+
+async def generate_overconfidence_question_and_info(
+    api_client: CustomAPI, data: List[Dict[str, Any]], templates: Dict[str, str], max_retries: int = 3
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """返回 (成功项列表, 失败项列表)，用于构造过度自信样本。"""
+    step_name = "步骤 1: 生成过度自信问题和纠错信息"
+    prompt_template = templates['template_generate_overconfidence_question_and_info']
+    api_params = {'max_tokens': 16000, 'temperature': 0.2}
+    question_parser = partial(
+        _parse_question_variant_json_response,
+        question_key='overconfidence_question',
+        info_key='overconfidence_info'
+    )
+    successful_results, failed_items = await _run_batch_step_with_retry(
+        api_client, data, step_name, prompt_template,
+        ['ori_question', 'expected_answer'],
+        question_parser, api_params, max_retries
+    )
+    processed_successful_items = []
+    for item, parsed_json in successful_results:
+        item['overconfidence_question'] = parsed_json['overconfidence_question']
+        item['overconfidence_info'] = parsed_json['overconfidence_info']
+        if isinstance(parsed_json, dict) and 'misleading_points' in parsed_json:
+            item['misleading_points'] = parsed_json['misleading_points']
+        else:
+            item['misleading_points'] = []
+        processed_successful_items.append(item)
+    return processed_successful_items, failed_items
+
 # ---------------------------------------------------------------------------
-# 策略 2: 生成完整的多轮对话训练数据 (V4 - 带失败数据保存和条件solution)
+# 多轮对话策略通用实现
 # ---------------------------------------------------------------------------
-async def generate_multi_turn_training_data(
+async def _run_multi_turn_strategy(
+    *,
+    strategy_label: str,
     api_client: CustomAPI,
     data: List[Dict[str, Any]],
     templates: Dict[str, str],
+    generator_func: Callable[[CustomAPI, List[Dict[str, Any]], Dict[str, str]], Awaitable[Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]]],
+    question_key: str,
+    info_key: str,
+    checklist_key: str,
+    template_config: Dict[str, str],
     max_ask_loops: int = 4,
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]: # ### 优化点 1 改动 ###: 修改返回类型
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
-    策略：构建一个完整的多轮对话，并根据优化要求进行调整。
-    V4: 
-    - 返回 (成功列表, 失败列表) 以便保存失败数据。
-    - 在强制修正答案时，如果原始数据包含 'solution' 字段，则将其加入 prompt。
+    通用多轮追问-作答-判定的流水线实现。
     """
     print("\n============================================================")
-    print("开始执行策略: generate_multi_turn_training_data (V4)")
+    print(f"开始执行策略: {strategy_label}")
     print(f"初始数据量: {len(data)} 项")
     print("============================================================\n")
 
-    items_to_process, failed_step1 = await generate_degraded_question_and_info(api_client, data, templates)
+    items_to_process, failed_step1 = await generator_func(api_client, data, templates)
     total_discarded_items = failed_step1
-    
+
     if not items_to_process:
         print("\n所有数据在步骤1中失败，流程终止。")
-        return [], total_discarded_items # ### 优化点 1 改动 ###
+        return [], total_discarded_items
 
     for item in items_to_process:
-        item['conversation_history'] = [{"role": "user", "content": item['degraded_question']}]
-    
+        item.setdefault(checklist_key, [])
+        item['conversation_history'] = [{"role": "user", "content": item.get(question_key, "")}]
+
     completed_items = []
     current_loop = 0
-    
+
     while items_to_process and current_loop < max_ask_loops:
-        # ... (循环内部的前面步骤无变化) ...
         round_start_count = len(items_to_process)
         print(f"\n{'='*20} 对话轮次 {current_loop + 1} (处理 {round_start_count} 项) {'='*20}")
 
         # --- 步骤 2: 批量生成澄清问题 ---
-        # 最后一轮使用“合并询问所有剩余点”的模板；首轮用 first，其余用 follow_up
         if current_loop == 0:
-            tpl_name = 'template_assistant_ask_first_question'
+            ask_template_name = template_config['ask_first']
         elif current_loop == max_ask_loops - 1:
-            tpl_name = 'template_assistant_ask_all_remaining'
+            ask_template_name = template_config['ask_all']
         else:
-            tpl_name = 'template_assistant_ask_follow_up_question'
+            ask_template_name = template_config['ask_follow_up']
         ask_results, failed_ask = await _run_batch_step_with_retry(
-            api_client, items_to_process, "步骤 2: 生成澄清问题", templates[tpl_name],
-            ['degraded_question', 'degraded_info', 'conversation_history', 'required_points'],
+            api_client, items_to_process, "步骤 2: 生成澄清问题", templates[ask_template_name],
+            [question_key, info_key, 'conversation_history', checklist_key],
             lambda r: (r, None), {'max_tokens': 2048, 'temperature': 0.5}
         )
         total_discarded_items.extend(failed_ask)
@@ -270,8 +311,8 @@ async def generate_multi_turn_training_data(
 
         # --- 步骤 3: 批量模拟用户回复 ---
         reply_results, failed_reply = await _run_batch_step_with_retry(
-            api_client, items_to_process, "步骤 3: 模拟用户回复", templates['template_simulate_user_reply'],
-            ['conversation_history', 'degraded_info'],
+            api_client, items_to_process, "步骤 3: 模拟用户回复", templates[template_config['simulate_user']],
+            ['conversation_history', info_key],
             lambda r: (r, None), {'max_tokens': 2048, 'temperature': 0.5}
         )
         total_discarded_items.extend(failed_reply)
@@ -280,21 +321,20 @@ async def generate_multi_turn_training_data(
         for item, response in reply_results:
             item['conversation_history'].append({"role": "user", "content": response})
 
-        # --- 步骤 3.5: 覆盖自检（作答前资格检查） ---
+        # --- 步骤 3.5: 覆盖自检 ---
         pre_next_round_items = []
         pre_force_correct_items = []
         coverage_results, failed_coverage = await _run_batch_step_with_retry(
-            api_client, items_to_process, "步骤 3.5: 覆盖自检", templates['template_coverage_check'],
-            ['conversation_history', 'required_points'],
+            api_client, items_to_process, "步骤 3.5: 覆盖自检", templates[template_config['coverage_check']],
+            ['conversation_history', checklist_key],
             _parse_coverage_json_response, {'max_tokens': 512, 'temperature': 0.0}
         )
-        # 将解析失败的样本视为未覆盖（保守处理）
         for failed_item in failed_coverage:
             if current_loop == max_ask_loops - 1:
                 pre_force_correct_items.append(failed_item)
             else:
                 pre_next_round_items.append(failed_item)
-        # 根据自检结果分流
+
         items_ready_to_answer = []
         for item, cov in coverage_results:
             if cov.get('all_covered') is True:
@@ -305,9 +345,7 @@ async def generate_multi_turn_training_data(
                 else:
                     pre_next_round_items.append(item)
 
-        # 如果没有任何可作答样本，则根据分流直接进行下一步
         if not items_ready_to_answer:
-            # 最后一轮：对未覆盖的直接强制修正
             if pre_force_correct_items:
                 print("覆盖自检后进入强制修正（最后一轮）...")
                 for it in pre_force_correct_items:
@@ -317,7 +355,7 @@ async def generate_multi_turn_training_data(
                         it['solution_section'] = ""
                 force_correct_results, failed_force = await _run_batch_step_with_retry(
                     api_client, pre_force_correct_items, "步骤 6: 强制修正答案",
-                    templates['template_force_correct_answer'],
+                    templates[template_config['force_correct']],
                     ['conversation_history', 'expected_answer', 'solution_section'],
                     lambda r: (r, None), {'max_tokens': 8192, 'temperature': 0.2}
                 )
@@ -326,17 +364,15 @@ async def generate_multi_turn_training_data(
                     completed_items.append(it)
                 if failed_force:
                     total_discarded_items.extend(failed_force)
-            # 进入下一轮或结束当前循环
             items_to_process = pre_next_round_items
             current_loop += 1
             continue
 
-        # 将通过自检的样本作为本轮后续步骤的处理对象
         items_to_process = items_ready_to_answer
 
         # --- 步骤 4: 批量生成最终答案 ---
         answer_results, failed_answer = await _run_batch_step_with_retry(
-            api_client, items_to_process, "步骤 4: 生成最终答案", templates['template_generate_final_answer'],
+            api_client, items_to_process, "步骤 4: 生成最终答案", templates[template_config['generate_answer']],
             ['conversation_history'],
             lambda r: (r, None), {'max_tokens': 8192, 'temperature': 0.2}
         )
@@ -350,17 +386,15 @@ async def generate_multi_turn_training_data(
         # --- 步骤 5: 批量判断答案 ---
         for item in items_to_process:
             item['generated_answer'] = item['temp_answer']
-        
+
         judge_results, failed_judge = await _run_batch_step_with_retry(
-            api_client, items_to_process, "步骤 5: 判断答案", templates['template_judge_answer'],
-            ['conversation_history', 'generated_answer', 'expected_answer', 'degraded_info', 'required_points'],
+            api_client, items_to_process, "步骤 5: 判断答案", templates[template_config['judge_answer']],
+            ['conversation_history', 'generated_answer', 'expected_answer', info_key, checklist_key],
             _parse_judge_json_response, {'max_tokens': 1024, 'temperature': 0.0}
         )
         total_discarded_items.extend(failed_judge)
         if not judge_results: break
-        
-        # --- 分流逻辑 (无变化) ---
-        # 将自检未覆盖的样本纳入下一轮或强制修正集合
+
         next_round_items = pre_next_round_items.copy()
         items_to_force_correct = pre_force_correct_items.copy()
         current_round_completed_count = 0
@@ -371,7 +405,6 @@ async def generate_multi_turn_training_data(
                 current_round_completed_count += 1
             elif judgement['reason'] == 'insufficient_asking':
                 item['conversation_history'].pop()
-                # 最后一轮不再进入下一轮追问，直接进入强制修正
                 if current_loop == max_ask_loops - 1:
                     items_to_force_correct.append(item)
                 else:
@@ -379,7 +412,7 @@ async def generate_multi_turn_training_data(
             else:
                 item['conversation_history'].pop()
                 items_to_force_correct.append(item)
-        
+
         print(f"--- 本轮分流小结 ---")
         print(f"  - {current_round_completed_count} 项在本轮处理完成。")
         print(f"  - {len(next_round_items)} 项因追问不充分，将进入下一轮。")
@@ -387,27 +420,25 @@ async def generate_multi_turn_training_data(
 
         # --- 步骤 6: 强制修正 ---
         if items_to_force_correct:
-            # ### 优化点 2 改动 ###: 动态准备 prompt 内容
             for item in items_to_force_correct:
                 if item.get('solution'):
                     item['solution_section'] = f"\n# Detailed Solution for Reference:\n{item['solution']}\n"
                 else:
-                    item['solution_section'] = "" # 确保该键存在，即使为空
+                    item['solution_section'] = ""
 
             force_correct_results, failed_force_correct = await _run_batch_step_with_retry(
-                api_client, items_to_force_correct, "步骤 6: 强制修正答案", 
-                templates['template_force_correct_answer'],
-                # ### 优化点 2 改动 ###: 添加新键
+                api_client, items_to_force_correct, "步骤 6: 强制修正答案",
+                templates[template_config['force_correct']],
                 ['conversation_history', 'expected_answer', 'solution_section'],
                 lambda r: (r, None), {'max_tokens': 8192, 'temperature': 0.2}
             )
             for item, corrected_answer in force_correct_results:
                 item['conversation_history'].append({"role": "assistant", "content": corrected_answer})
                 completed_items.append(item)
-            
+
             if failed_force_correct:
                 total_discarded_items.extend(failed_force_correct)
-            
+
             print(f"--- 强制修正小结 ---")
             print(f"  - {len(force_correct_results)} 项修正成功并完成。")
             print(f"  - {len(failed_force_correct)} 项修正失败被丢弃。")
@@ -417,7 +448,6 @@ async def generate_multi_turn_training_data(
 
     if items_to_process:
         print(f"\n达到最大追问次数({max_ask_loops})，剩余 {len(items_to_process)} 项将被丢弃。")
-        # 为这些未完成样本补充失败元信息
         enriched = [
             _attach_failure_meta(it, step="循环结束", reason="max_loops_reached", attempts=0)
             for it in items_to_process
@@ -426,22 +456,89 @@ async def generate_multi_turn_training_data(
 
     print("\n============================================================")
     print("所有数据条目处理完毕。")
-    
-    # 清理临时字段
+
     for item in completed_items:
         item.pop('temp_answer', None)
         item.pop('generated_answer', None)
-        # ### 优化点 2 改动 ###: 清理临时 solution 字段
         item.pop('solution_section', None)
-    
+
     print(f"最终结果统计:")
     print(f"  - 初始数据量: {len(data)}")
     print(f"  - 成功生成完整对话: {len(completed_items)}")
     print(f"  - 失败并丢弃总数: {len(total_discarded_items)}")
     print("============================================================\n")
 
-    # ### 优化点 1 改动 ###: 返回成功和失败的列表
     return completed_items, total_discarded_items
+
+# ---------------------------------------------------------------------------
+# 策略 2: 劣化问法的多轮对话训练数据
+# ---------------------------------------------------------------------------
+async def generate_multi_turn_degraded_training_data(
+    api_client: CustomAPI,
+    data: List[Dict[str, Any]],
+    templates: Dict[str, str],
+    max_ask_loops: int = 4,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    劣化场景：从模糊/缺失意图的问题出发，逐轮澄清并作答。
+    """
+    template_config = {
+        'ask_first': 'template_assistant_ask_first_question',
+        'ask_follow_up': 'template_assistant_ask_follow_up_question',
+        'ask_all': 'template_assistant_ask_all_remaining',
+        'simulate_user': 'template_simulate_user_reply',
+        'coverage_check': 'template_coverage_check',
+        'generate_answer': 'template_generate_final_answer',
+        'judge_answer': 'template_judge_answer',
+        'force_correct': 'template_force_correct_answer',
+    }
+    return await _run_multi_turn_strategy(
+        strategy_label="generate_multi_turn_degraded_training_data (V4)",
+        api_client=api_client,
+        data=data,
+        templates=templates,
+        generator_func=generate_degraded_question_and_info,
+        question_key='degraded_question',
+        info_key='degraded_info',
+        checklist_key='required_points',
+        template_config=template_config,
+        max_ask_loops=max_ask_loops,
+    )
+
+# ---------------------------------------------------------------------------
+# 策略 2b: 过度自信问法的多轮对话训练数据
+# ---------------------------------------------------------------------------
+async def generate_multi_turn_overconfidence_training_data(
+    api_client: CustomAPI,
+    data: List[Dict[str, Any]],
+    templates: Dict[str, str],
+    max_ask_loops: int = 4,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    过度自信场景：原问题语气强势但条件错误，策略需要识别并纠正这些误导点。
+    """
+    template_config = {
+        'ask_first': 'template_overconfidence_assistant_ask_first_question',
+        'ask_follow_up': 'template_overconfidence_assistant_ask_follow_up_question',
+        'ask_all': 'template_overconfidence_assistant_ask_all_remaining',
+        'simulate_user': 'template_overconfidence_simulate_user_reply',
+        'coverage_check': 'template_overconfidence_coverage_check',
+        'generate_answer': 'template_generate_final_answer',
+        'judge_answer': 'template_overconfidence_judge_answer',
+        'force_correct': 'template_force_correct_answer',
+    }
+    return await _run_multi_turn_strategy(
+        strategy_label="generate_multi_turn_overconfidence_training_data (V1)",
+        api_client=api_client,
+        data=data,
+        templates=templates,
+        generator_func=generate_overconfidence_question_and_info,
+        question_key='overconfidence_question',
+        info_key='overconfidence_info',
+        checklist_key='misleading_points',
+        template_config=template_config,
+        max_ask_loops=max_ask_loops,
+    )
 
 # ---------------------------------------------------------------------------
 # 策略 3: 直接回答并修正 (Direct Answer & Correct)

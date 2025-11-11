@@ -80,7 +80,7 @@ import asyncio
 from main import main
 
 asyncio.run(main(
-    strategy="generate_multi_turn_training_data",
+    strategy="generate_multi_turn_degraded_training_data",
     input_file="/path/to/input.jsonl",
     output_file="/path/to/output.jsonl",
     prompts_file="prompts.txt",
@@ -102,19 +102,22 @@ asyncio.run(main(
 1) `generate_degraded_question_and_info`
 - 输入：`ori_question`、`expected_answer`
 - 输出：为每条样本生成 `degraded_question`、`degraded_info`、`required_points`
-- 常作为其他策略的前置步骤
+- 常作为劣化类多轮策略的前置步骤
 
-2) `generate_multi_turn_training_data`
-- 目标：生成完整多轮对话（含追问、用户模拟、覆盖自检、答案生成与判定、强制修正）
-- 每一轮的顺序：
-  - 先问（首问/追问；最后一轮“合并问全”）
-  - 用户模拟回复
-  - 覆盖自检（all_covered / missing）
-  - 未覆盖：进入下一轮（最后一轮直接强制修正）
-  - 已覆盖：生成最终答案 → Judge（三分流：正确/追问不足/推理错误）
-- 当 `solution` 存在时，在强制修正阶段会作为参考信息拼接到 Prompt 中
+2) `generate_overconfidence_question_and_info`
+- 输入：`ori_question`、`expected_answer`
+- 输出：构造 `overconfidence_question`（口吻过度自信但条件错误）、`overconfidence_info`（记录错点及正确值）、`misleading_points`
+- 用于过度自信场景的多轮策略前置步骤
 
-3) `strategy_direct_answer_and_correct`
+3) `generate_multi_turn_degraded_training_data`
+- 目标：在劣化问法场景下生成完整多轮对话（追问 → 用户模拟 → 覆盖自检 → 答案 → Judge → 强制修正）
+- `required_points` 驱动每一轮的澄清项，`solution` 字段若存在会用于强制修正提示
+
+4) `generate_multi_turn_overconfidence_training_data`
+- 目标：针对“用户口吻过于自信但条件是错的”场景生成多轮对话，围绕 `misleading_points` 持续校对并纠偏
+- 模板会引导助手怀疑错误条件、逼出真实值，再生成答案并判定
+
+5) `strategy_direct_answer_and_correct`
 - 目标：先直接生成答案，再判断；若错误则基于 `expected_answer` 和可选 `solution` 重构为“完美答案”，输出最终对话
 - 流程更短，适用于无需多轮追问的场景
 
@@ -128,13 +131,20 @@ template_xxx = '''
 ```
 主要模板名（部分）：
 - `template_generate_degraded_question_and_info`
+- `template_generate_overconfidence_question_and_info`
 - `template_assistant_ask_first_question`
 - `template_assistant_ask_follow_up_question`
 - `template_assistant_ask_all_remaining`
 - `template_simulate_user_reply`
 - `template_coverage_check`
+- `template_overconfidence_assistant_ask_first_question`
+- `template_overconfidence_assistant_ask_follow_up_question`
+- `template_overconfidence_assistant_ask_all_remaining`
+- `template_overconfidence_simulate_user_reply`
+- `template_overconfidence_coverage_check`
 - `template_generate_final_answer`
 - `template_judge_answer`
+- `template_overconfidence_judge_answer`
 - `template_direct_answer`
 - `template_judge_direct_answer`
 - `template_reconstruct_answer`
