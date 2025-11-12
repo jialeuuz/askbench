@@ -240,7 +240,8 @@ async def generate_overconfidence_question_and_info(
     )
     processed_successful_items = []
     for item, parsed_json in successful_results:
-        item['overconfidence_question'] = parsed_json['overconfidence_question']
+        # 直接采用模型产出的独立问题文本（要求其保留原题 givens，但以自然口吻融入“自信但错误”的断言）
+        item['overconfidence_question'] = parsed_json.get('overconfidence_question', '')
         item['overconfidence_info'] = parsed_json['overconfidence_info']
         if isinstance(parsed_json, dict) and 'misleading_points' in parsed_json:
             item['misleading_points'] = parsed_json['misleading_points']

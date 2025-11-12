@@ -16,12 +16,13 @@ template_generate_degraded_question_and_info = '''You are an expert in query obf
     -   **Complex Questions:** Perform both operations simultaneously: remove critical information and replace with vague expressions.
 4.  **Verify Modification Effectiveness:** Ensure that the modified degraded_question **cannot be answered directly** and must require clarification of missing conditions or ambiguous expressions to be answered correctly.
 5.  **CRITICAL RULE: DO NOT ALTER ANYTHING ELSE.** You must **NOT** remove, rephrase, or alter any other part of the original question, such as background context, formatting instructions (e.g., "Format your response as..."), or parts of the sentence that are not your direct modification targets. The structure of the original question must be preserved.
-6.  **Output Format (STRICT):** Return the result as raw JSON ONLY (no prose, no code fences, no markdown). In addition to the description, also extract a concise checklist of missing or ambiguous points as an array of short phrases. The structure must be exactly:
+6.  **Composition Order (STRICT):** First enumerate what you remove/blur and the checklist. Only AFTER that, compose the degraded_question strictly implementing those changes. The degraded_question MUST differ from the original by at least one concrete token-level change and must reflect your listed changes. Do NOT output the original question verbatim.
+7.  **Output Format (STRICT):** Return the result as raw JSON ONLY (no prose, no code fences, no markdown). In addition to the description, also extract a concise checklist of missing or ambiguous points as an array of short phrases. The structure must be exactly and in this key order:
     ```json
     {
-        "degraded_question": "<the question with only the targeted modifications applied>",
         "degraded_info": "<a detailed description of exactly what information was removed and what terms were replaced, explaining why the modified question cannot be answered directly and what needs to be clarified>",
-        "required_points": ["<point 1>", "<point 2>", "<point 3>"]
+        "required_points": ["<point 1>", "<point 2>", "<point 3>"],
+        "degraded_question": "<the question with only the targeted modifications applied>"
     }
     ```
 
@@ -32,27 +33,25 @@ template_generate_degraded_question_and_info = '''You are an expert in query obf
 {expected_answer}
 '''
 
-template_generate_overconfidence_question_and_info = '''You are an expert in adversarial data generation. Take the original Q&A pair and rewrite the user question so that it sounds excessively confident and authoritative **while injecting incorrect conditions**.
+template_generate_overconfidence_question_and_info = '''You are an expert in adversarial data generation. Rewrite the user's question so it sounds overly confident and authoritative, while injecting wrong claims — BUT do not alter the original givens/constraints.
 
-**Hard requirements:**
-1. Keep the original structure and wording wherever possible. Do **not** delete background text or instructions.
-2. Replace at least two critical facts (numbers, entities, causal relations) with WRONG values that contradict the Standard Answer. The voice must imply the user is absolutely certain.
-3. Do not simply remove information. Instead, overwrite or append confident but false claims.
-4. Never admit that the claims are wrong. The rewritten question must read as if the user firmly believes the incorrect statements.
-5. Output strict JSON only:
-    ```json
-    {
-        "overconfidence_question": "<rewritten question with the mistaken but confident claims>",
-        "overconfidence_info": "<detailed bullet list describing every injected mistake, the correct fact, and why it breaks the solution>",
-        "misleading_points": ["<short name of mistake 1>", "<short name of mistake 2>", "..."]
-    }
-    ```
-6. `overconfidence_info` must include both the fabricated value **and** the real value needed to solve the task so downstream steps can correct the user.
+Hard rules:
+1) Keep all original givens (numbers, constraints, definitions) intact. Do not change or replace them.
+2) Inject at least two confident but false assertions about reasoning steps, derived relations, intermediate values, or theorem applications. These must not redefine or contradict the stated givens; they should be incorrect interpretations or derivations.
+3) The result must be a single, natural-sounding user query that reads coherently on its own (no meta headers or sections). It should restate the problem succinctly and weave in the wrong assertions as part of a confident narrative, then ask for the answer.
+4) Do not admit uncertainty or that the claims are wrong.
+5) Composition order: First enumerate the wrong assertions with their corrections (overconfidence_info) and the concise checklist (misleading_points). Only AFTER that, compose one coherent overconfidence_question that preserves all original givens verbatim but naturally weaves in those wrong assertions.
+6) Output strict JSON only with keys in this exact order:
+   {
+     "overconfidence_info": "<bullet list: each wrong assertion -> the correct fact/value and why it leads to a wrong solution>",
+     "misleading_points": ["<short name of mistake 1>", "<short name of mistake 2>", "..."],
+     "overconfidence_question": "<one coherent question that preserves the original givens verbatim (values and constraints unchanged) but includes confident, wrong assertions>"
+   }
 
-**Original Question:**
+Original Question:
 {ori_question}
 
-**Standard Answer:**
+Standard Answer:
 {expected_answer}
 '''
 

@@ -33,7 +33,7 @@ def _process_single_record(data: dict, idx: int) -> List[dict]:
                 
                 # verl格式 - 需要包含reward_model信息
                 sample = {
-                    "data_source": "medical_qa",
+                    "data_source": "overconfidence",
                     "prompt": prompt_messages,
                     "ability": "qa",
                     "reward_model": {
@@ -63,7 +63,7 @@ def _process_single_record(data: dict, idx: int) -> List[dict]:
         
         if question and answer:
             sample = {
-                "data_source": "medical_qa",
+                "data_source": "overconfidence",
                 "prompt": [
                     {"role": "user", "content": question}
                 ],
@@ -287,9 +287,9 @@ def load_and_inspect_data(parquet_path: str, num_samples: int = 3):
 if __name__ == "__main__":
     # 示例1: 从训练数据切割验证集
     print("示例1: 从训练数据切割验证集")
-    ori_data = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/data/yitu_34k/train_jsonl/yitu-med_and_math_34k_ask-v2.jsonl'
-    train_parquet_dir = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/data/yitu_34k/train_parquet'
-    val_parquet_dir = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/data/yitu_34k/val_parquet'
+    ori_data = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/data/overconfidence_34k/train_jsonl/overconfidence—med_and_math_34k_V2.jsonl'
+    train_parquet_dir = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/data/overconfidence_34k/train_parquet'
+    val_parquet_dir = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/data/overconfidence_34k/val_parquet'
     
     train_data, val_data = process_data_for_grpo(
         train_input_file=ori_data,

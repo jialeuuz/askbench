@@ -106,16 +106,16 @@ asyncio.run(main(
 
 2) `generate_overconfidence_question_and_info`
 - 输入：`ori_question`、`expected_answer`
-- 输出：构造 `overconfidence_question`（口吻过度自信但条件错误）、`overconfidence_info`（记录错点及正确值）、`misleading_points`
-- 用于过度自信场景的多轮策略前置步骤
+- 输出：构造 `overconfidence_question`（一个独立、自然的用户提问：准确保留原题givens，但在推导/解释层面加入自信却错误的断言，不改变题面条件与数值），`overconfidence_info`（记录每条断言的错误值与正确值及影响）、`misleading_points`
+- 用于过度自信场景的多轮策略前置步骤；标准答案仍对应原题，不受错误断言影响
 
 3) `generate_multi_turn_degraded_training_data`
 - 目标：在劣化问法场景下生成完整多轮对话（追问 → 用户模拟 → 覆盖自检 → 答案 → Judge → 强制修正）
 - `required_points` 驱动每一轮的澄清项，`solution` 字段若存在会用于强制修正提示
 
 4) `generate_multi_turn_overconfidence_training_data`
-- 目标：针对“用户口吻过于自信但条件是错的”场景生成多轮对话，围绕 `misleading_points` 持续校对并纠偏
-- 模板会引导助手怀疑错误条件、逼出真实值，再生成答案并判定
+- 目标：针对“用户口吻过于自信但推导/解释错误（不改变题目条件）”的场景生成多轮对话，围绕 `misleading_points` 质询与纠偏
+- 模板引导助手核对断言、逼出正确信息，最终仍以原题为准生成答案并判定
 
 5) `strategy_direct_answer_and_correct`
 - 目标：先直接生成答案，再判断；若错误则基于 `expected_answer` 和可选 `solution` 重构为“完美答案”，输出最终对话

@@ -1,8 +1,8 @@
 import json
 
 # 输入输出路径
-input_file = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/yitu/sample_medmcqa_2k_ask.jsonl"
-output_file = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/data/2k_med_ask/train_jsonl/sample_medmcqa_2k_ask.jsonl"
+input_file = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/final/overconfidence—med_and_math_34k_V2.jsonl"
+output_file = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/data/overconfidence_34k/train_jsonl/overconfidence—med_and_math_34k_V2.jsonl"
 
 all_data = []
 
@@ -17,7 +17,8 @@ with open(input_file, 'r', encoding='utf-8') as f:
         # 2. 添加精简版数据
         simplified_data = {
             "ori_question": data["ori_question"],
-            "expected_answer": data["expected_answer"]
+            "expected_answer": data["expected_answer"],
+            "pass_rate": data["pass_rate"],
         }
         all_data.append(simplified_data)
 
