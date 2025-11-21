@@ -368,7 +368,6 @@ def strip_string(string, skip_unit=False):
 
     # remove percentage
     string = string.replace("\\%", "")
-    string = string.replace("\%", "")
     string = string.replace("%", "")
 
     # " 0." equivalent to " ." and "{0." equivalent to "{." Alternatively, add "0" if "." is the start of the string

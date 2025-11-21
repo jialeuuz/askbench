@@ -81,6 +81,35 @@ def _parse_judge_json_response(raw_response: str) -> Tuple[Optional[Dict[str, An
     except (json.JSONDecodeError, ValueError, KeyError) as e:
         return None, e
 
+
+def _coerce_to_text_block(value: Any) -> str:
+    """
+    模型有时会把 info 字段输出成列表；这里统一转换为多行字符串，方便后续模板使用。
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        normalized_lines = []
+        for entry in value:
+            if entry is None:
+                continue
+            if isinstance(entry, str):
+                line = entry.strip()
+            else:
+                line = json.dumps(entry, ensure_ascii=False)
+            if not line:
+                continue
+            if line.startswith(("-", "*")):
+                normalized_lines.append(line)
+            else:
+                normalized_lines.append(f"- {line}")
+        return "\n".join(normalized_lines).strip()
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value).strip()
+
 async def _run_batch_step_with_retry(
     api_client: CustomAPI,
     items: List[Dict[str, Any]],
@@ -211,7 +240,7 @@ async def generate_degraded_question_and_info(
     processed_successful_items = []
     for item, parsed_json in successful_results:
         item['degraded_question'] = parsed_json['degraded_question']
-        item['degraded_info'] = parsed_json['degraded_info']
+        item['degraded_info'] = _coerce_to_text_block(parsed_json['degraded_info'])
         # 保存结构化缺失点清单（若存在）；否则给一个空清单，确保后续模板格式化安全
         if isinstance(parsed_json, dict) and 'required_points' in parsed_json:
             item['required_points'] = parsed_json['required_points']
@@ -242,7 +271,7 @@ async def generate_overconfidence_question_and_info(
     for item, parsed_json in successful_results:
         # 直接采用模型产出的独立问题文本（要求其保留原题 givens，但以自然口吻融入“自信但错误”的断言）
         item['overconfidence_question'] = parsed_json.get('overconfidence_question', '')
-        item['overconfidence_info'] = parsed_json['overconfidence_info']
+        item['overconfidence_info'] = _coerce_to_text_block(parsed_json['overconfidence_info'])
         if isinstance(parsed_json, dict) and 'misleading_points' in parsed_json:
             item['misleading_points'] = parsed_json['misleading_points']
         else:

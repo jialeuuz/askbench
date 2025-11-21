@@ -22,6 +22,13 @@ _active_models = []
 _keepalive_thread = None
 _stop_keepalive = False
 
+KEEPALIVE_PROMPT = (
+    "Hello, this is a keepalive message but please respond strictly in Chinese. "
+    "已知 $f ( x )=2 \\operatorname{s i n} \\frac{\\pi x} {3}, g ( x )=\\frac{1} {x-6}$，"
+    "则 $f ( x )=g ( x )$ 在 $[-8, 2 0 ]$ 上所有根的和为多少？"
+)
+KEEPALIVE_MESSAGES = [{"role": "user", "content": KEEPALIVE_PROMPT}]
+
 def _keepalive_worker(interval_minutes=1):
     """
     后台工作线程，定期为所有活跃模型的所有URL发送保活请求
@@ -54,11 +61,11 @@ def _keepalive_worker(interval_minutes=1):
                             loop = asyncio.new_event_loop()
                             asyncio.set_event_loop(loop)
                             result = loop.run_until_complete(model.generate_async(
-                                messages=[{"role": "user", "content": "Hello, this is a keepalive message but please respond strictly in Chinese. 已知 $f ( x )=2 \operatorname{s i n} \frac{\pi x} {3}, g ( x )=\frac{1} {x-6}$，则 $f ( x )=g ( x )$ 在 $[-8, 2 0 ]$ 上所有根的和为多少？"}],
+                                messages=KEEPALIVE_MESSAGES,
                                 max_tokens=16384,
                                 temperature=1,
                                 url=url,
-                                timeout=50
+                                timeout=360
                             ))
                             loop.close()
                             # logger.info(f"已发送保活请求到URL: {url}, 模型: {model.__class__.__name__}")
@@ -71,7 +78,7 @@ def _keepalive_worker(interval_minutes=1):
             else:
                 try:
                     response = model.generate(
-                        messages=[{"role": "user", "content": "Hello, this is a keepalive message but please respond strictly in Chinese. 已知 $f ( x )=2 \operatorname{s i n} \frac{\pi x} {3}, g ( x )=\frac{1} {x-6}$，则 $f ( x )=g ( x )$ 在 $[-8, 2 0 ]$ 上所有根的和为多少？"}],
+                        messages=KEEPALIVE_MESSAGES,
                         max_tokens=16384,
                         temperature=1
                     )
@@ -137,11 +144,23 @@ def create_model(model_config: Dict, generate_config: Dict = None) -> BaseAPIMod
     if extra_prompt:
         logger.info(f"使用额外提示: {extra_prompt}")
     if model_config.get("model_type") == "api":
-        api_type = model_config.get("api_type", "").lower()
+        api_type_value = model_config.get("api_type", "")
+        api_type = api_type_value.lower()
+        model_name_value = model_config.get("model_name") or ""
+        model_name_lower = model_name_value.lower()
+        use_gpt_api = False
+
         if "gpt" in api_type:
+            use_gpt_api = True
+        elif model_name_lower and model_name_lower != "default":
+            use_gpt_api = True
+
+        if use_gpt_api:
             model = GPTAPI(
                 url=main_url,
-                api_type=model_config.get("api_type"),
+                api_type=api_type_value,
+                model_name=model_config.get("model_name"),
+                sk_token=model_config.get("sk_token", "none"),
                 api_urls=api_urls,
                 timeout=timeout,
                 extra_prompt=extra_prompt,

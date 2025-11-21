@@ -26,6 +26,7 @@ python scripts/main.py --config config/base.ini
 | `scripts/main.py` | 评测入口：逐任务读取配置并调度相应的运行脚本 |
 | `scripts/run.py` | 单轮评测主循环（Math/MedQA 等） |
 | `scripts/run_ask.py` | AskBench 多轮对话评测（被测模型 + 裁判模型） |
+| `scripts/run_fata.py` | FATA 双阶段评测入口（澄清 + 强化回答） |
 | `scripts/run_ask_lone.py` | AskLone 评测入口，执行通过率估计 + 最终答复判定 |
 | `ask_eval/models/` | 模型封装，统一 API 调用、批量推理与保活逻辑 |
 | `ask_eval/data/` | 数据加载器（当前默认读取 `test.jsonl`） |
@@ -33,6 +34,7 @@ python scripts/main.py --config config/base.ini
 | `ask_eval/utils/config.py` | 配置读取、合并与结果汇总工具 |
 | `config/base.ini` | 全局默认配置；`config/common/*.ini` 为任务差分配置 |
 | `run.sh` | 快速覆盖配置并启动评测的脚本 |
+| `data/fata/*` | FATA 任务数据目录（按任务名放置 `test.jsonl`） |
 
 ## 评测执行流程
 
@@ -40,6 +42,7 @@ python scripts/main.py --config config/base.ini
 2. **逐任务调度**：
    - 默认情况下拼接 `config/common/<task>.ini` 后调用 `scripts/run.py`。
    - 任务名包含 `ask_lone` 时，调用 `scripts/run_ask_lone.py` 执行通过率评估 + 最终答复评分。
+   - 任务名包含 `fata` 时，调用 `scripts/run_fata.py` 执行 F1 澄清 + F2 强化回答的双阶段评测。
    - 其它包含 `ask` 或 `quest_bench` 的任务改用 `scripts/run_ask.py` 触发多轮评测。
    - 配置中若将 `tasks_config_path` 指向其它模板（如 EvalScope/OpenCompass），会走相应分支并在结束后写入最终指标。
 3. **结果写出**：
@@ -107,7 +110,7 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
 - **AskEvaluator**：多轮对话核心。裁判模型兼任三种角色：判断是否给出最终答案、评估答案正确性、在模型提问后模拟用户回复。评测循环包含：
   1. 被测模型生成下一轮回复（最后一轮会强制输出最终答案）。
   2. 裁判模型判定回复是否是终结回答及其正确性。
-  3. 若未终结且仍有轮次，请裁判模型根据隐藏的 `ori_question` 和 `degraded_info` 生成符合人类行为的追加信息。
+  3. 若未终结且仍有轮次，请裁判模型根据隐藏的 `ori_question` 与场景上下文（如 `degraded_info` / `overconfidence_info`）生成符合人类行为的追加信息。
   4. 记录回合日志，直至模型回答或轮次耗尽。
 
 最后会生成 `askbench_detailed_results.json`，记录每个样本的对话轨迹、裁判判定与失败原因统计。
@@ -135,14 +138,60 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
     ]
   }
   ```
+- **Ask Overconfidence 字段**：`data/ask_bench/ask_overconfidence/*/test.jsonl` 使用 `overconfidence_question`、`overconfidence_info`、`misleading_points`，分别对应暴露给模型的带有错误暗示的题面、错误论断与正确事实说明，以及必须被模型质疑/修正的误导点清单。AskEvaluator 会把这些字段自动映射成场景上下文与“必查点”，逻辑与 `required_points` 一致。
 - **裁判输出规范**：AskEvaluator 会要求裁判模型先给出一行 `Reasoning:`，再输出一个严格的 ```json 代码块，字段包含 `is_final_answer`、`is_correct`、`all_required_points_resolved`、`missing_required_points` 与可选的 `notes`。若未能解析出 JSON，将自动重试，最多 10 次；若仍失败，则跳过该样本（不计入最终分数，并在结果中标记 `JudgeJSONParseFailed`）。
 - **指标拆解**：`askbench_detailed_results.json` 会记录每轮覆盖了哪些 `required_points`、是否出现“信息已经齐全却继续提问”的事件，以及最终答案是否在信息缺失的情况下给出。
 - **结果统计**：`results.txt` 与 CLI 输出会同时给出：
   - 只统计有效样本的准确率；
-  - “合规率”——在给出最终答案前是否补齐全部 `required_points`；
-  - “过早作答率”——信息不足却直接回答的比例；
-  - “冗余追问”——信息已经齐全仍继续提问的样本数与事件数；
+  - “合规率” (cov_rate)——在给出最终答案前是否补齐全部 `required_points`；
+  - “冗余追问信率” (unq_rate)——信息已经齐全仍继续提问的样本数与事件数；
+  - “综合得分” (score)——仅对 `ask_mind_math500de/medqade/gpqade/bbhde` 与 `ask_overconfidence(+_math500/+_medqa)` 计算，按照 `0.5 * acc + 0.3 * cov_rate + 0.2 * (1 - unq_rate)` 汇总，`unq_rate` 越低越好；
   - 全量原因分布（含被跳过样本），方便定位问题。
+
+## FATA 双阶段评测
+
+- **数据来源**：`fata_math500` 与 `fata_medqa` 直接复用 AskMind 数据（分别从 `ask_mind_math500de` 与 `ask_mind_medqade` 中复制），统一存放在 `data/fata/<task>/test.jsonl`。
+- **阶段流程**：
+  1. **Stage F1（Systemized Clarification）**：被测模型收到下面的英文 prompt，仅允许输出补充问题列表。
+     ```
+     You are a senior expert in this field.
+     
+     The user's question is:
+     <degraded_question>
+     
+     Before answering, produce a structured checklist of the key follow-up questions you need to ask the user so you can uncover all missing details in a single turn.
+     Requirements:
+     1) Cover aspects such as background/context, constraints, goals and preferences, environmental factors, and historical information when relevant.
+     2) Organize the output into clear sections or bullet groups with concise questions.
+     3) Whenever a question may confuse non-expert users, provide example answer options in parentheses to illustrate what you are asking for.
+     4) If the information is already sufficient, respond with "The information is sufficient, no follow-up questions are needed."
+     
+     Do not request sensitive personal data (phone numbers, ID numbers, or exact home addresses).
+     Only output the clarifying-question checklist.
+     ```
+     Judge 模型拿到 F1 输出后，会结合 `ori_question`、`degraded_question`、`degraded_info` 与 `required_points` 生成真实用户的逐条回复。回复被格式化为编号列表，“Question ... / Answer ...” 的形式。
+  2. **Stage F2（Context-enriched Answering）**：被测模型拿到原问题（仍是 `degraded_question`）以及「F1 问题 + 用户逐条回答」文本，再次提示：
+     ```
+     You are a senior expert in this field.
+     
+     Original problem:
+     <degraded_question>
+     
+     User replies to your clarifying checklist:
+     <F1 question + answer pairs>
+     
+     Based on the complete context, deliver a personalized and actionable solution.
+     Requirements:
+     1) Explicitly connect your advice to the user's objectives and constraints.
+     2) Provide concrete steps, strategies, and cautions.
+     3) If critical information is still missing, first point out the gap, explain why it matters, and then offer the best recommendation possible with the available data.
+     
+     Keep the tone positive, clear, and easy to read.
+     ```
+- **判分机制**：
+  - Stage F1 仅生成问题，不直接判分。
+  - Stage F2 的最终回答会交给 Judge 模型，与 `expected_answer` 比对，Judge 用 ```json 块输出 `{"is_correct": true/false, "reason": "..."}`，无法解析 JSON 时视为错误。
+  - `scripts/run_fata.py` 输出 `fata_detailed_results.json`（包含两轮 prompt/回复、裁判结论）与 `summary_results.json`，`results.txt` 中记录整体准确率与异常统计。
 
 ## 扩展指南
 
@@ -154,7 +203,8 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 ## 常用参数提示
 
 - `generateconfig.n_attempts`：同一题目多次采样，评估平均准确率与 `pass@1`。
-- `generateconfig.max_concurrent`：并发请求上限，避免压垮模型服务。
+- `generateconfig.max_concurrent`：并发请求上限，避免压垮模型服务。AskBench / QuestBench 多轮评测现已严格按照该值控制被测模型的异步调用。
+- `[evaluatorconfig].max_concurrent`：裁判模型并发上限。Judge 负责仲裁与模拟用户两个角色，同样会遵循该限制以免向外部 GPT 服务一次性发出太多请求。
 - `evaluatorconfig.max_turns`：AskBench 中最多对话轮数，默认 5。
 - `model.extra_prompt`、`model.system_prompt`：通过 `BaseAPIModel.format_messages` 自动拼接进用户或系统对话。
 
@@ -182,7 +232,9 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 | `medqa` | `data/common/medqa` | `MedQAEvaluator` | 单轮 | 医学多选题，模型回答一次，提取选项字母并直接比对。 |
 | `medqa_de` | `data/degrade/medqa_de` | `MedQADeEvaluator` | 单轮 | 降质版 MedQA，题干为 `degraded_question`，答案仍是选项匹配。 |
 | `gpqa` | `data/common/gpqa` | `GpqaEvaluator` | 单轮 | 通识问答集，处理方式类似 MedQA。 |
-| `ask_yes` | `data/ask_bench/ask_yes` | `AskEvaluator` | 多轮裁判 | AskBench 子任务，存在裁判模型；被测模型需通过提问补全信息，裁判负责判定终止与正误。 |
+| `ask_overconfidence` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | AskBench 子任务，存在裁判模型；被测模型需通过提问补全信息，裁判负责判定终止与正误。 |
+| `ask_overconfidence_math500` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | Math500 子集的 overconfidence 版本，模型需识别并修正误导点后再作答。 |
+| `ask_overconfidence_medqa` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | MedQA 子集的 overconfidence 版本，字段与 ask_overconfidence_math500 相同。 |
 | `ask_mind` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench 主任务，逻辑同上，题干为 `degraded_question`，真题存放于 `ori_question`。 |
 | `ask_lone` | `data/ask_bench/ask_lone` | `AskLoneEvaluator` | 单轮 + 裁判 | 先估 16 次通过率，再根据最终作答/认输计算得分。 |
 | `ask_lone_bbhde` | `data/ask_bench/ask_lone` | `AskLoneEvaluator` | 单轮 + 裁判 | AskLone 逻辑 + BBH 原题（`ori_question`），题目来源 `ask_mind_bbhde`。 |
@@ -193,6 +245,8 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 | `ask_mind_medqade` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench + MedQA 降质组合，裁判流程同上。 |
 | `ask_mind_gpqade` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench + GPQA 降质组合。 |
 | `ask_mind_bbhde` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench + BBH 降质组合。 |
+| `fata_math500` | `data/fata/fata_math500` | `FataEvaluator` | 双轮（澄清+强化回答） | Stage F1 要求结构化补充问题，Judge 生成额外信息，Stage F2 作答后由 Judge 判定是否与 `expected_answer` 一致。 |
+| `fata_medqa` | `data/fata/fata_medqa` | `FataEvaluator` | 双轮（澄清+强化回答） | 与 `fata_math500` 相同逻辑，只是题源换为 MedQA。 |
 | `quest_bench` | `data/ask_bench/quest_bench` | `AskEvaluator` | 多轮裁判 | QuestBench 任务，仍沿用 AskEvaluator 的多轮裁判与模拟用户流程。 |
 
 > 注：所有 `ask_*` 与 `quest_bench` 系列都依赖 `[evaluatorconfig]` 中的裁判模型与多轮对话框架；普通数学/医学任务则是单轮调用 + 正则化答案比对。新增任务时可对照该表快速定位所需的数据结构与评估器。

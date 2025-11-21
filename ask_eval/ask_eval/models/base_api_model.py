@@ -35,12 +35,14 @@ class BaseAPIModel(ABC):
         # 获取sk_token和api_type
         sk_token = getattr(self, 'sk_token', None)
         api_type = getattr(self, 'api_type', None)
-        
+        model_name = getattr(self, 'model_name', None)
+
         # 检查所有URLs
         success, healthy_urls = check_urls_health(
             self.api_urls,
             sk_token=sk_token,
             api_type=api_type,
+            model_name=model_name,
             max_wait_minutes=max_wait_minutes
         )
         

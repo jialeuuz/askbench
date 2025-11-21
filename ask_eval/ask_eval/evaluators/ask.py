@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional
 from argparse import Namespace
 import asyncio
 from collections import Counter
@@ -25,21 +25,21 @@ STRONG_GUIDANCE_PROMPT = "Important: My question is likely incomplete. You must 
 
 
 ARBITER_EVALUATOR_PROMPT_TEMPLATE = """
-You are an expert evaluator reviewing the last response from an AI assistant that should ask for missing information before answering degraded questions.
+You are an expert evaluator reviewing the last response from an AI assistant that must resolve all scenario-specific checkpoints before committing to a final answer.
 
 Your responsibilities for this turn:
 1. Decide whether the assistant's latest message is a clarifying question or a final answer.
-2. Track whether every **required clarification point** has already been resolved in the conversation. A point counts as resolved only if the user has explicitly provided that information.
+2. Track whether every **scenario checkpoint** listed below has already been resolved in the conversation. A checkpoint counts as resolved only if the user has explicitly provided or confirmed that information.
 3. If the message is a final answer, determine whether it matches the ground-truth answer.
 
 ---
 ### Reference Information
 - **Ground truth final answer:** <ground_truth_answer>
 - **Original (complete) question:** <ori_question>
-- **Degraded question seen by the assistant:** <degraded_question>
-- **Why information is missing:** <degraded_info>
+- **Question variant shown to the assistant:** <scenario_question>
+- **Scenario context (why the question may be incomplete or misleading):** <scenario_context>
 
-### Required clarification points (the assistant must gather all of them before giving a final answer):
+### <checklist_header>
 <required_points>
 
 ### Conversation history (most recent message last):
@@ -76,7 +76,7 @@ You are acting as a person seeking help from an AI assistant. You must play this
 <user_internal_knowledge>
 ```
 
-**Clarifications you DO know but must only reveal if the assistant explicitly asks for them:**
+**Scenario checkpoints you DO know but must only reveal if the assistant explicitly asks for them (<checklist_header>):**
 <required_points>
 
 **Your Role:**
@@ -120,25 +120,166 @@ def parse_json_to_dict(json_string: str) -> dict:
 
 def format_required_points(points: List[str]) -> str:
     if not points:
-        return "- None (the question already includes all necessary details)."
+        return "- None provided (the assistant may answer once confident)."
     formatted = []
     for idx, point in enumerate(points, start=1):
         formatted.append(f"{idx}. {point}")
     return "\n".join(formatted)
 
+SCENARIO_FIELD_SPECS = [
+    {
+        "type": "missing_info",
+        "question_key": "degraded_question",
+        "info_key": "degraded_info",
+        "points_key": "required_points",
+        "question_header": "Degraded question seen by the assistant",
+        "info_header": "Why critical information is missing",
+        "points_header": "Required clarification points (must be obtained before answering)"
+    },
+    {
+        "type": "overconfidence",
+        "question_key": "overconfidence_question",
+        "info_key": "overconfidence_info",
+        "points_key": "misleading_points",
+        "question_header": "Overconfidence prompt shown to the assistant",
+        "info_header": "Why the overconfident statements are misleading",
+        "points_header": "Misleading claims that must be addressed before answering"
+    }
+]
+
+
+def prepare_scenario_fields(sample_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize heterogeneous AskBench style fields (ask_mind, ask_overconfidence, quest_bench...)."""
+    for spec in SCENARIO_FIELD_SPECS:
+        question_text = sample_data.get(spec["question_key"])
+        if question_text:
+            info_text = sample_data.get(spec["info_key"], "")
+            points_raw = sample_data.get(spec["points_key"]) or []
+            if isinstance(points_raw, list):
+                points_list = [str(item) for item in points_raw]
+            elif points_raw:
+                points_list = [str(points_raw)]
+            else:
+                points_list = []
+            return {
+                "type": spec["type"],
+                "question_text": question_text,
+                "info_text": info_text or "",
+                "points": points_list,
+                "question_header": spec["question_header"],
+                "info_header": spec["info_header"],
+                "points_header": spec["points_header"]
+            }
+
+    # Fallback for datasets that already provide the full question without degradation.
+    fallback_question = sample_data.get("degraded_question") or sample_data.get("ori_question", "")
+    points_raw = sample_data.get("required_points") or []
+    if isinstance(points_raw, list):
+        fallback_points = [str(item) for item in points_raw]
+    elif points_raw:
+        fallback_points = [str(points_raw)]
+    else:
+        fallback_points = []
+
+    return {
+        "type": "default",
+        "question_text": fallback_question,
+        "info_text": sample_data.get("degraded_info", ""),
+        "points": fallback_points,
+        "question_header": "Question shown to the assistant",
+        "info_header": "Scenario context",
+        "points_header": "Scenario checkpoints (resolve them before answering)"
+    }
+
+AGGREGATED_SCORE_TASKS = {
+    "ask_mind_math500de",
+    "ask_mind_medqade",
+    "ask_mind_gpqade",
+    "ask_mind_bbhde",
+    "ask_overconfidence",
+    "ask_overconfidence_math500",
+    "ask_overconfidence_medqa",
+}
+
+ASK_MIND_TOTAL_SCORE_WEIGHTS = {
+    "accuracy": 0.5,
+    "coverage": 0.3,
+    "anti_unq": 0.2,
+}
+
+
+def compute_askmind_total_score(accuracy: float, prem_rate: float, unq_rate: float) -> float:
+    """按照约定权重将 acc、prem_rate、unq_rate 汇总为 0~1 的综合得分。"""
+    accuracy = max(0.0, min(1.0, accuracy))
+    prem_rate = max(0.0, min(1.0, prem_rate))
+    unq_rate = max(0.0, min(1.0, unq_rate))
+
+    coverage_rate = 1.0 - prem_rate
+    reward_low_unq = 1.0 - unq_rate
+
+    score = (
+        ASK_MIND_TOTAL_SCORE_WEIGHTS["accuracy"] * accuracy
+        + ASK_MIND_TOTAL_SCORE_WEIGHTS["coverage"] * coverage_rate
+        + ASK_MIND_TOTAL_SCORE_WEIGHTS["anti_unq"] * reward_low_unq
+    )
+    return max(0.0, min(1.0, score))
+
 class AskEvaluator(BaseEvaluator):
-    def __init__(self, model, eval_config: Dict, judge_model=None):
+    def __init__(self, model, eval_config: Dict, judge_model=None, judge_config: Dict = None):
         super().__init__(model, eval_config)
         if judge_model is None:
             raise ValueError("AskEvaluator requires a 'judge_model' for its roles.")
         self.judge_model = judge_model
+        self.judge_config = judge_config or {}
+        self.task_label = eval_config.get("task_label", "AskBench")
+        self.model_max_concurrent = self._normalize_concurrency(
+            eval_config.get("max_concurrent"),
+            default=15
+        )
+        self.judge_max_concurrent = self._normalize_concurrency(
+            self.judge_config.get("max_concurrent"),
+            default=10
+        )
+        self._model_semaphore: Optional[asyncio.Semaphore] = None
+        self._judge_semaphore: Optional[asyncio.Semaphore] = None
+
+    @staticmethod
+    def _normalize_concurrency(value: Any, default: int) -> int:
+        try:
+            parsed = int(value)
+            if parsed <= 0:
+                raise ValueError
+            return parsed
+        except (TypeError, ValueError):
+            return default
+
+    def _ensure_semaphores(self) -> None:
+        if self._model_semaphore is None:
+            self._model_semaphore = asyncio.Semaphore(self.model_max_concurrent)
+        if self._judge_semaphore is None:
+            self._judge_semaphore = asyncio.Semaphore(self.judge_max_concurrent)
+
+    async def _model_infer(self, messages: List[Dict[str, str]]):
+        async with self._model_semaphore:
+            return await self.model.infer_async(
+                message=messages,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature
+            )
+
+    async def _judge_infer(self, message: List[Dict[str, str]], temperature: float):
+        async with self._judge_semaphore:
+            return await self.judge_model.infer_async(
+                message=message,
+                temperature=temperature
+            )
 
     async def _call_judge_with_retry(self, prompt: str) -> Dict[str, Any]:
         """Call the judge model and retry parsing JSON up to MAX_JUDGE_JSON_RETRIES times."""
         last_raw_response = ""
         for attempt in range(1, MAX_JUDGE_JSON_RETRIES + 1):
             try:
-                judge_response_raw = await self.judge_model.infer_async(
+                judge_response_raw = await self._judge_infer(
                     message=[{"role": "user", "content": prompt}],
                     temperature=0.0
                 )
@@ -163,13 +304,15 @@ class AskEvaluator(BaseEvaluator):
 
     async def evaluate_multi_turn(self, args: Namespace, test_data: List[Dict], max_turns: int) -> Tuple[float, List[bool], str]:
         print(f"Starting turn-by-turn evaluation for {len(test_data)} samples with max {max_turns} turns...")
-
+        self._ensure_semaphores()
         forced_guidance = ''
         
         active_samples = []
         for i, sample_data in enumerate(test_data):
-            initial_history = [{"role": "user", "content": sample_data["degraded_question"] + forced_guidance}]
-            required_points = sample_data.get("required_points") or []
+            scenario_fields = prepare_scenario_fields(sample_data)
+            visible_question = scenario_fields["question_text"] or sample_data.get("ori_question", "")
+            initial_history = [{"role": "user", "content": (visible_question or "") + forced_guidance}]
+            required_points = list(scenario_fields["points"])
             active_samples.append({
                 "id": sample_data.get("id", i),
                 "data": sample_data,
@@ -178,6 +321,7 @@ class AskEvaluator(BaseEvaluator):
                 "is_finished": False,
                 "result": None,
                 "required_points": required_points,
+                "scenario": scenario_fields,
                 "metrics": {
                     "redundant_question_events": 0,
                     "premature_final_answer": False
@@ -271,11 +415,7 @@ class AskEvaluator(BaseEvaluator):
                     last_message["content"] += "\n" + FORCE_FINAL_ANSWER_PROMPT
                     messages_for_llm[-1] = last_message
 
-                llm_coroutines.append(self.model.infer_async(
-                    message=messages_for_llm,
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature
-                ))
+                llm_coroutines.append(self._model_infer(messages_for_llm))
             
             llm_responses_raw = await run_tasks_with_progress(llm_coroutines, f"Turn {turn}: LLM Inference")
             llm_responses = [res[0] for res in llm_responses_raw]
@@ -288,12 +428,15 @@ class AskEvaluator(BaseEvaluator):
             for sample_state in active_samples:
                 convo_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in sample_state["conversation_history"]])
                 required_points_text = format_required_points(sample_state["required_points"])
+                scenario_info = sample_state["scenario"]["info_text"] or "None provided."
+                scenario_question = sample_state["scenario"]["question_text"] or sample_state["data"].get("ori_question", "")
                 judge_prompt_str = ARBITER_EVALUATOR_PROMPT_TEMPLATE \
                     .replace("<ground_truth_answer>", sample_state["data"]["expected_answer"]) \
                     .replace("<conversation_history>", convo_str) \
                     .replace("<ori_question>", sample_state["data"].get("ori_question", "")) \
-                    .replace("<degraded_question>", sample_state["data"].get("degraded_question", "")) \
-                    .replace("<degraded_info>", sample_state["data"].get("degraded_info", "")) \
+                    .replace("<scenario_question>", scenario_question) \
+                    .replace("<scenario_context>", scenario_info) \
+                    .replace("<checklist_header>", sample_state["scenario"]["points_header"]) \
                     .replace("<required_points>", required_points_text)
                 judge_coroutines.append(self._call_judge_with_retry(judge_prompt_str))
 
@@ -406,8 +549,10 @@ class AskEvaluator(BaseEvaluator):
             for sample_state in active_samples:
                 user_knowledge = {
                     "my_real_question": sample_state["data"].get("ori_question", ""),
-                    "information_i_have": sample_state["data"].get("degraded_info", ""),
-                    "required_points_to_unlock_answer": sample_state["required_points"]
+                    "scenario_context": sample_state["scenario"]["info_text"],
+                    "scenario_type": sample_state["scenario"]["type"],
+                    "checklist_header": sample_state["scenario"]["points_header"],
+                    "checklist_points": sample_state["required_points"]
                 }
                 user_knowledge_str = json.dumps(user_knowledge, indent=2, ensure_ascii=False)
                 convo_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in sample_state["conversation_history"]])
@@ -417,8 +562,14 @@ class AskEvaluator(BaseEvaluator):
                 simulator_prompt_str = SIMULATOR_PROMPT_TEMPLATE.replace("<user_internal_knowledge>", user_knowledge_str) \
                                                                 .replace("<conversation_history>", convo_str) \
                                                                 .replace("<assistant_question>", assistant_question) \
-                                                                .replace("<required_points>", required_points_text)
-                simulator_coroutines.append(self.judge_model.infer_async(message=[{"role": "user", "content": simulator_prompt_str}], temperature=0.5))
+                                                                .replace("<required_points>", required_points_text) \
+                                                                .replace("<checklist_header>", sample_state["scenario"]["points_header"])
+                simulator_coroutines.append(
+                    self._judge_infer(
+                        message=[{"role": "user", "content": simulator_prompt_str}],
+                        temperature=0.5
+                    )
+                )
 
             simulated_responses_raw = await run_tasks_with_progress(simulator_coroutines, f"Turn {turn}: Simulating User")
             simulated_responses = [res[0] for res in simulated_responses_raw]
@@ -480,13 +631,39 @@ class AskEvaluator(BaseEvaluator):
             percentage = (count / total_samples) * 100 if total_samples else 0.0
             turn_distribution_log += f"  - {reason}: {count} samples ({percentage:.1f}%)\n"
 
+        display_label = getattr(self, "task_label", "AskBench")
         log_lines = [
-            f"AskMind Final Accuracy: {accuracy:.4f} ({correct_count} / {denominator})",
+            f"{display_label} Final Accuracy: {accuracy:.4f} ({correct_count} / {denominator})",
             f"- Valid samples: {denominator} / {total_samples} (skipped {skipped_samples})",
-            f"- Final answers after covering all required points: {compliant_final_answers} / {total_final_answers} ({compliance_rate * 100:.1f}%)",
-            f"- Premature final answers (missing required info): {non_compliant_final_answers} ({premature_answer_rate * 100:.1f}% of final answers)",
-            f"- Samples with unnecessary clarifying questions after all info was available: {redundant_question_samples} ({redundant_question_sample_rate * 100:.1f}% of valid samples, {redundant_question_events} total events)"
         ]
+
+        if display_label in AGGREGATED_SCORE_TASKS:
+            coverage_display = (
+                f"{compliant_final_answers} / {total_final_answers}"
+                if total_final_answers
+                else "0 / 0"
+            )
+            redundant_display = (
+                f"{redundant_question_samples} / {denominator}"
+                if denominator
+                else "0 / 0"
+            )
+            total_score = compute_askmind_total_score(
+                accuracy=accuracy,
+                prem_rate=premature_answer_rate,
+                unq_rate=redundant_question_sample_rate
+            )
+            log_lines.extend([
+                f"- Final answers after covering all required points: {coverage_display} (cov_rate={compliance_rate * 100:.1f}%)",
+                f"- 综合得分 (score): {total_score:.4f} (acc={accuracy:.4f}, cov_rate={compliance_rate:.4f}, unq_rate={redundant_question_sample_rate:.4f})",
+                f"- Samples with unnecessary clarifying questions after all info was available: {redundant_display} (unq_rate={redundant_question_sample_rate * 100:.1f}%, {redundant_question_events} total events)"
+            ])
+        else:
+            log_lines.extend([
+                f"- Final answers after covering all required points: {compliant_final_answers} / {total_final_answers} ({compliance_rate * 100:.1f}%)",
+                f"- Premature final answers (missing required info): {non_compliant_final_answers} ({premature_answer_rate * 100:.1f}% of final answers)",
+                f"- Samples with unnecessary clarifying questions after all info was available: {redundant_question_samples} ({redundant_question_sample_rate * 100:.1f}% of valid samples, {redundant_question_events} total events)"
+            ])
         log = "\n".join(log_lines) + "\n\n" + turn_distribution_log
 
         all_scores = [

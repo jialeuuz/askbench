@@ -33,25 +33,26 @@ template_generate_degraded_question_and_info = '''You are an expert in query obf
 {expected_answer}
 '''
 
-template_generate_overconfidence_question_and_info = '''You are an expert in adversarial data generation. Rewrite the user's question so it sounds overly confident and authoritative, while injecting wrong claims — BUT do not alter the original givens/constraints.
+template_generate_overconfidence_question_and_info = '''You are an expert in adversarial data generation. Take the original Q&A pair and craft an overly confident user query that injects wrong reasoning while keeping the givens intact.
 
-Hard rules:
-1) Keep all original givens (numbers, constraints, definitions) intact. Do not change or replace them.
-2) Inject at least two confident but false assertions about reasoning steps, derived relations, intermediate values, or theorem applications. These must not redefine or contradict the stated givens; they should be incorrect interpretations or derivations.
-3) The result must be a single, natural-sounding user query that reads coherently on its own (no meta headers or sections). It should restate the problem succinctly and weave in the wrong assertions as part of a confident narrative, then ask for the answer.
-4) Do not admit uncertainty or that the claims are wrong.
-5) Composition order: First enumerate the wrong assertions with their corrections (overconfidence_info) and the concise checklist (misleading_points). Only AFTER that, compose one coherent overconfidence_question that preserves all original givens verbatim but naturally weaves in those wrong assertions.
-6) Output strict JSON only with keys in this exact order:
+**You must strictly follow these rules:**
+
+1. **Preserve givens:** Copy every original number, constraint, and definition verbatim. Never invent or alter givens.
+2. **Inject confident mistakes:** Invent **at least two** wrong assertions about intermediate values, theorem applications, causal relations, or derived steps. They must sound authoritative yet be incorrect interpretations of the givens.
+3. **Describe mistakes first:** Before composing the question, write `overconfidence_info` as一段完整的描述文字（可用换行或破折号组织），逐条说明“错误断言 → 正确事实 → 为什么该错误会误导推导”。
+4. **Checklist:** Build `misleading_points` as short labels summarizing each wrong assertion so downstream steps can track coverage.
+5. **Compose one question:** After listing the info and checklist, craft exactly one natural, overconfident question that restates the original problem, smoothly embeds the wrong assertions, and still asks for the final answer. No meta commentary.
+6. **Output format (STRICT):** Return raw JSON only (no prose/markdown) with keys in this exact order:
    {
-     "overconfidence_info": "<bullet list: each wrong assertion -> the correct fact/value and why it leads to a wrong solution>",
-     "misleading_points": ["<short name of mistake 1>", "<short name of mistake 2>", "..."],
-     "overconfidence_question": "<one coherent question that preserves the original givens verbatim (values and constraints unchanged) but includes confident, wrong assertions>"
+     "overconfidence_info": "<a detailed description of each wrong assertion, the correct fact/value, and why it misleads the solution (single string)>",
+     "misleading_points": ["<short label 1>", "<short label 2>", "..."],
+     "overconfidence_question": "<single confident question that preserves all givens but includes the wrong assertions>"
    }
 
-Original Question:
+**Original Question:**
 {ori_question}
 
-Standard Answer:
+**Standard Answer:**
 {expected_answer}
 '''
 

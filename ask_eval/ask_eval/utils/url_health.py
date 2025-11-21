@@ -3,14 +3,28 @@ import requests
 import logging
 import asyncio
 import aiohttp
+import uuid
 from typing import List, Tuple
 
 logger = logging.getLogger(__name__)
+
+def _build_headers(sk_token: str = None, model_name: str = None) -> dict:
+    """生成健康检查所需的请求头。"""
+    headers = {'Content-Type': 'application/json'}
+    if model_name and model_name.lower() != 'default':
+        headers['model'] = model_name
+        if sk_token and sk_token != 'none':
+            headers['X-CHJ-GWToken'] = sk_token
+        headers['BCS-APIHub-RequestId'] = str(uuid.uuid4())
+    elif sk_token and sk_token != 'none':
+        headers['Authorization'] = f'Bearer {sk_token}'
+    return headers
 
 def check_url_health(
     url: str, 
     sk_token: str = None, 
     api_type: str = None,
+    model_name: str = None,
     max_wait_minutes: int = 15
 ) -> bool:
     """
@@ -20,15 +34,12 @@ def check_url_health(
         url: API URL
         sk_token: 授权令牌
         api_type: API类型
+        model_name: 模型名称或自定义路由标识
         max_wait_minutes: 最长等待时间（分钟）
         
     Returns:
         bool: URL是否健康
     """
-    headers = {'Content-Type': 'application/json'}
-    if sk_token and sk_token != 'none':
-        headers['Authorization'] = f'Bearer {sk_token}'
-    
     # 构造一个简单的请求数据
     data = {
         "messages": [{"role": "user", "content": "Hello"}],
@@ -36,8 +47,14 @@ def check_url_health(
         "temperature": 1
     }
     
-    if api_type and api_type != 'none':
-        data["model"] = api_type
+    model_field = None
+    if model_name and model_name.lower() != 'default':
+        model_field = model_name
+    elif api_type and api_type != 'none':
+        model_field = api_type
+
+    if model_field:
+        data["model"] = model_field
     
     logger.info(f"开始检测URL健康状态: {url}, 最多等待{max_wait_minutes}分钟")
     
@@ -45,6 +62,7 @@ def check_url_health(
     max_wait_seconds = max_wait_minutes * 60
     while time.time() - start_time < max_wait_seconds:
         try:
+            headers = _build_headers(sk_token, model_name)
             response = requests.post(
                 url, 
                 headers=headers, 
@@ -81,6 +99,7 @@ async def async_check_url_health(
     url: str, 
     sk_token: str = None, 
     api_type: str = None,
+    model_name: str = None,
     max_wait_minutes: int = 15
 ) -> Tuple[str, bool]:
     """
@@ -90,15 +109,12 @@ async def async_check_url_health(
         url: API URL
         sk_token: 授权令牌
         api_type: API类型
+        model_name: 模型名称或自定义路由标识
         max_wait_minutes: 最长等待时间（分钟）
         
     Returns:
         Tuple[str, bool]: (URL, 是否健康)
     """
-    headers = {'Content-Type': 'application/json'}
-    if sk_token and sk_token != 'none':
-        headers['Authorization'] = f'Bearer {sk_token}'
-    
     # 构造一个简单的请求数据
     data = {
         "messages": [{"role": "user", "content": "Hello"}],
@@ -106,8 +122,14 @@ async def async_check_url_health(
         "temperature": 1
     }
     
-    if api_type and api_type != 'none':
-        data["model"] = api_type
+    model_field = None
+    if model_name and model_name.lower() != 'default':
+        model_field = model_name
+    elif api_type and api_type != 'none':
+        model_field = api_type
+
+    if model_field:
+        data["model"] = model_field
     
     logger.info(f"开始检测URL健康状态: {url}, 最多等待{max_wait_minutes}分钟")
     
@@ -117,6 +139,7 @@ async def async_check_url_health(
     async with aiohttp.ClientSession() as session:
         while time.time() - start_time < max_wait_seconds:
             try:
+                headers = _build_headers(sk_token, model_name)
                 async with session.post(
                     url, 
                     headers=headers, 
@@ -152,6 +175,7 @@ async def async_check_urls_health(
     urls: List[str], 
     sk_token: str = None, 
     api_type: str = None,
+    model_name: str = None,
     max_wait_minutes: int = 15
 ) -> Tuple[bool, List[str]]:
     """
@@ -161,6 +185,7 @@ async def async_check_urls_health(
         urls: API URL列表
         sk_token: 授权令牌
         api_type: API类型
+        model_name: 模型名称或自定义路由标识
         max_wait_minutes: 最长等待时间（分钟）
         
     Returns:
@@ -172,7 +197,7 @@ async def async_check_urls_health(
     
     # 并发检查所有URL
     tasks = [
-        async_check_url_health(url, sk_token, api_type, max_wait_minutes) 
+        async_check_url_health(url, sk_token, api_type, model_name, max_wait_minutes) 
         for url in urls
     ]
     results = await asyncio.gather(*tasks)
@@ -193,6 +218,7 @@ def check_urls_health(
     urls: List[str], 
     sk_token: str = None, 
     api_type: str = None,
+    model_name: str = None,
     max_wait_minutes: int = 15
 ) -> Tuple[bool, List[str]]:
     """
@@ -202,6 +228,7 @@ def check_urls_health(
         urls: API URL列表
         sk_token: 授权令牌
         api_type: API类型
+        model_name: 模型名称或自定义路由标识
         max_wait_minutes: 最长等待时间（分钟）
         
     Returns:
@@ -217,7 +244,7 @@ def check_urls_health(
         with concurrent.futures.ThreadPoolExecutor() as pool:
             future = pool.submit(
                 lambda: asyncio.run(
-                    async_check_urls_health(urls, sk_token, api_type, max_wait_minutes)
+                    async_check_urls_health(urls, sk_token, api_type, model_name, max_wait_minutes)
                 )
             )
             return future.result()
@@ -225,5 +252,5 @@ def check_urls_health(
     except RuntimeError:
         # 如果不在事件循环中，则可以直接使用asyncio.run
         return asyncio.run(
-            async_check_urls_health(urls, sk_token, api_type, max_wait_minutes)
+            async_check_urls_health(urls, sk_token, api_type, model_name, max_wait_minutes)
         )

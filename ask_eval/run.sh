@@ -1,5 +1,5 @@
 #!/bin/bash
-export PYTHONPATH='/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/ask_eval'
+export PYTHONPATH='/Users/zhaojiale5/local_codes/askQ/ask_eval'
 # 如果任何命令失败，则立即退出
 set -e
 
@@ -11,19 +11,30 @@ DEFAULT_RESULTS_ROOT="results"
 # --- 参数配置与说明 ---
 # 通过命令行传入的参数将覆盖 base.ini 中的对应值。
 
+# [可选] 模型 sk_token
+MODEL_SK_TOKEN="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzbFhwYnpMOHRHenhnY2dFdFh4azgxMzVIdUhuSGlZYiJ9.e6PbiPCLNvBoGDcbZmHYiWsk6VE9b9tvmoCoT_zVM4U"
 # [必需] 模型的 API URL
-API_URL="http://10.80.13.48:8012/v1/chat/completions"
-# [必需] 逗号分隔的任务列表 (math500,math500_de,medqa,medqa_de,ask_yes,ask_mind,ask_mind_math500de,ask_mind_medqade,ask_mind_gpqade,ask_mind_bbhde,ask_lone,ask_lone_math500de,ask_lone_medqade,ask_lone_gpqade,ask_lone_bbhde,quest_bench)
-# math500,medqa,
-# ask_mind_math500de,ask_mind_medqade,ask_mind_gpqade,ask_mind_bbhde
+# API_URL="http://api-hub.inner.chj.cloud/llm-gateway/v1"
+# MODEL_NAME="azure-gpt-4_1"
+API_URL="http://10.80.12.180:8012/v1"
+MODEL_NAME="default"
+# [必需] 逗号分隔的任务列表
+# math500,medqa,gpqa
+# math500_de,medqa_de
 # quest_bench
-# math500,medqa,ask_mind_math500de,ask_mind_medqade,quest_bench
-TASKS="math500"
+# ask_mind_math500de,ask_mind_medqade,ask_mind_gpqade,ask_mind_bbhde
+# ask_lone_math500de,ask_lone_medqade,ask_lone_gpqade,ask_lone_bbhde
+# fata_math500,fata_medqa   # FATA 双阶段任务
+TASKS="ask_mind_math500de"
 # [可选] 手动指定结果保存目录。若不指定，将根据模型和任务自动生成。
-SAVE_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/bak/results/qwen25_7b_17k_math_160step"
+SAVE_DIR="results/test"
 # SAVE_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/results/qwen3_8b"
 # [可选] [evaluatorconfig] api_url
-EVAL_API_URL="http://10.80.13.97:8014/v1/chat/completions"
+EVAL_API_URL="http://api-hub.inner.chj.cloud/llm-gateway/v1"
+# [可选] 裁判模型 sk_token
+EVAL_SK_TOKEN="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzbFhwYnpMOHRHenhnY2dFdFh4azgxMzVIdUhuSGlZYiJ9.e6PbiPCLNvBoGDcbZmHYiWsk6VE9b9tvmoCoT_zVM4U"
+# [可选] 裁判模型名字
+EVAL_MODEL_NAME="azure-gpt-4_1"
 # EVAL_API_URL="https://lisunzhu123.fc.chj.cloud/gpt_41"
 # [可选] [generateconfig] max_tokens 
 MAX_TOKENS=28000
@@ -42,6 +53,10 @@ while [[ "$#" -gt 0 ]]; do
         -t|--tasks)         TASKS="$2"; shift ;;
         -s|--save-dir)      SAVE_DIR="$2"; shift ;;
         -e|--eval-api-url)  EVAL_API_URL="$2"; shift ;; # <-- 修改点3: 命令行参数改为 --eval-api-url
+        --sk-token)         MODEL_SK_TOKEN="$2"; shift ;;
+        --eval-sk-token)    EVAL_SK_TOKEN="$2"; shift ;;
+        --model-name)       MODEL_NAME="$2"; shift ;;
+        --eval-model-name)  EVAL_MODEL_NAME="$2"; shift ;;
         --max-tokens)       MAX_TOKENS="$2"; shift ;;
         --temp)             TEMPERATURE="$2"; shift ;;
         --gen-concurrent)   GEN_MAX_CONCURRENT="$2"; shift ;;
@@ -82,6 +97,10 @@ echo "---"
 echo "将覆盖以下 base.ini 参数 (如果已提供):"
 # <-- 修改点4: 更新打印信息，使其更清晰，并使用新变量名
 [ ! -z "${EVAL_API_URL}" ]        && echo "  [evaluatorconfig] api_url: ${EVAL_API_URL}"
+[ ! -z "${MODEL_SK_TOKEN}" ]      && echo "  [model] sk_token:            ****(hidden)"
+[ ! -z "${EVAL_SK_TOKEN}" ]       && echo "  [evaluatorconfig] sk_token:  ****(hidden)"
+[ ! -z "${MODEL_NAME}" ]          && echo "  [model] model_name:         ${MODEL_NAME}"
+[ ! -z "${EVAL_MODEL_NAME}" ]     && echo "  [evaluatorconfig] model_name:${EVAL_MODEL_NAME}"
 [ ! -z "${MAX_TOKENS}" ]          && echo "  [generateconfig] max_tokens:         ${MAX_TOKENS}"
 [ ! -z "${TEMPERATURE}" ]         && echo "  [generateconfig] temperature:        ${TEMPERATURE}"
 [ ! -z "${GEN_MAX_CONCURRENT}" ]  && echo "  [generateconfig] max_concurrent: ${GEN_MAX_CONCURRENT}"
@@ -96,16 +115,31 @@ update_config() {
     local section="$1"
     local key="$2"
     local value="$3"
-    # 使用 awk 安全地更新 ini 文件
+    # 使用 awk 安全地更新 ini 文件；若键不存在会自动追加到该 section 尾部
     awk -v s="[${section}]" -v k="${key}" -v v="${value}" '
-        BEGIN {updated=0}
-        $0 == s {in_section=1}
-        /^\[/ && $0 != s {in_section=0}
-        in_section && $1 == k {
-            $0 = k " = " v;
-            updated=1
+        BEGIN {in_section=0; updated=0}
+        $0 == s {
+            in_section=1
+            print
+            next
         }
-        {print}
+        /^\[/ {
+            if (in_section && !updated) {
+                print k " = " v
+                updated=1
+            }
+            in_section = ($0 == s)
+            print
+            next
+        }
+        {
+            if (in_section && $1 == k) {
+                print k " = " v
+                updated=1
+            } else {
+                print
+            }
+        }
         END {
             if (in_section && !updated) {
                 print k " = " v
@@ -120,6 +154,10 @@ update_config "path" "save_dir" "${SAVE_DIR}"
 
 # <-- 修改点5: 这是最核心的修改，将 "evaluator_url" 改为 "api_url"，并使用新变量
 [ ! -z "${EVAL_API_URL}" ]        && update_config "evaluatorconfig" "api_url" "${EVAL_API_URL}"
+[ ! -z "${MODEL_SK_TOKEN}" ]      && update_config "model" "sk_token" "${MODEL_SK_TOKEN}"
+[ ! -z "${EVAL_SK_TOKEN}" ]       && update_config "evaluatorconfig" "sk_token" "${EVAL_SK_TOKEN}"
+[ ! -z "${MODEL_NAME}" ]          && update_config "model" "model_name" "${MODEL_NAME}"
+[ ! -z "${EVAL_MODEL_NAME}" ]     && update_config "evaluatorconfig" "model_name" "${EVAL_MODEL_NAME}"
 [ ! -z "${MAX_TOKENS}" ]          && update_config "generateconfig" "max_tokens" "${MAX_TOKENS}"
 [ ! -z "${TEMPERATURE}" ]         && update_config "generateconfig" "temperature" "${TEMPERATURE}"
 [ ! -z "${GEN_MAX_CONCURRENT}" ]  && update_config "generateconfig" "max_concurrent" "${GEN_MAX_CONCURRENT}"

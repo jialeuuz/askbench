@@ -37,6 +37,7 @@ async def run_ask_evaluation(config):
     max_turns = config.getint("evaluatorconfig", "max_turns", fallback=5) # 默认5轮
 
     evalset_name = config.get("evalset", "evalsetname")
+    generate_config["task_label"] = evalset_name
     
     # 2. 创建输出目录
     save_dir = os.path.join(
@@ -64,7 +65,7 @@ async def run_ask_evaluation(config):
     examples = loader.load_data()
     
     print(f"已加载 {len(examples)} 个评测样本。")
-    print("数据格式要求: 'degraded_question', 'ori_question', 'expected_answer', 'degraded_info', 'required_points'")
+    print("数据格式要求: 至少包含 'ori_question'、'expected_answer'，以及任务自带的场景字段（例如 'degraded_question'+'degraded_info'+'required_points' 或 'overconfidence_question'+'overconfidence_info'+'misleading_points'）。")
 
     # 5. 实例化评测器
     print(f"正在使用 EVALUATOR_MAP 中的 '{evalset_name}' 评测器...")
@@ -75,7 +76,8 @@ async def run_ask_evaluation(config):
     evaluator = evaluator_class(
         model=tested_model,
         eval_config=generate_config,
-        judge_model=judge_model
+        judge_model=judge_model,
+        judge_config=evaluator_config
     )
 
     # 记录开始时间

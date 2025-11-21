@@ -99,6 +99,7 @@ def get_model_config(config: configparser.ConfigParser) -> Dict:
         "timeout": ("str", 600),
         "extra_prompt": ("str", None),
         "system_prompt": ("str", None),  # 新增system_prompt参数
+        "model_name": ("str", None),
         "enable_thinking": ("bool", True)  # 为qwen3新增enable_thinking参数
     }
     return get_section_config(config, "model", param_specs)
@@ -145,6 +146,7 @@ def get_evaluator_config(config: configparser.ConfigParser) -> Dict:
         "sk_token": ("str", "none"),          # API 密钥
         "timeout": ("int", 600),              # 超时时间，注意键名是 'timeout'
         "system_prompt": ("str", None),       # 系统提示词
+        "model_name": ("str", None),
         
         # --- 文本生成相关参数 ---
         "temperature": ("float", 0.1),
@@ -215,6 +217,7 @@ def write_final_result_file(save_dir: str, task: str, task_name: str, final_file
         ("Avg Accuracy", r'Avg Accuracy.*?:\s*(\d+(?:\.\d+)?)', "AverageAccuracyEn"),
         ("最终正确率", r'最终正确率.*?:\s*(\d+(?:\.\d+)?)', "FinalAccuracy"),
         ("AskBench Final Accuracy", r'AskBench Final Accuracy:\s*(\d+(?:\.\d+)?)', "AskBenchFinalAccuracy"),
+        ("综合得分", r'综合得分.*?:\s*(\d+(?:\.\d+)?)', "TotalScore"),
         ("准确率", r'(?<!尝试)准确率:\s*(\d+(?:\.\d+)?)', "LegacyAccuracy"),
     ]
     time_pattern = r"总耗时:\s*(\d+):(\d{2}):(\d{2}\.\d+)"

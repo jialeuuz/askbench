@@ -6,7 +6,9 @@ LOADER_MAP = {
     "math500_de":JsonlLoader,
     "medqa":JsonlLoader,
     "medqa_de":JsonlLoader,
-    "ask_yes":JsonlLoader,
+    "ask_overconfidence":JsonlLoader,
+    "ask_overconfidence_math500":JsonlLoader,
+    "ask_overconfidence_medqa":JsonlLoader,
     "ask_mind":JsonlLoader,
     "ask_lone":JsonlLoader,
     "ask_lone_bbhde":JsonlLoader,
@@ -19,4 +21,6 @@ LOADER_MAP = {
     "ask_mind_gpqade":JsonlLoader,
     "quest_bench":JsonlLoader,
     "bbh":JsonlLoader,
+    "fata_math500":JsonlLoader,
+    "fata_medqa":JsonlLoader,
 }

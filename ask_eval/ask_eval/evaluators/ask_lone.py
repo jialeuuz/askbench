@@ -5,7 +5,7 @@ import re
 from typing import Dict, List, Tuple, Any
 
 from ask_eval.evaluators.base_evaluator import BaseEvaluator
-from ask_eval.evaluators.ask import parse_json_to_dict
+from ask_eval.evaluators.ask import parse_json_to_dict, MAX_JUDGE_JSON_RETRIES
 
 
 DEFAULT_PASS_ATTEMPTS = 16
@@ -95,6 +95,19 @@ class AskLoneEvaluator(BaseEvaluator):
         self.final_temperature = float(eval_config.get("final_temperature", self.temperature or 0.6))
         self.judge_temperature = float(self.judge_config.get("temperature", 0.0))
         self.judge_max_tokens = int(self.judge_config.get("max_new_tokens", 2048) or 2048)
+        self.judge_json_retries = self._resolve_judge_json_retries()
+
+    def _resolve_judge_json_retries(self) -> int:
+        candidate = self.judge_config.get("json_retries")
+        if not candidate:
+            candidate = self.eval_config.get("json_retries")
+        try:
+            retries = int(candidate)
+            if retries <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            retries = MAX_JUDGE_JSON_RETRIES
+        return max(5, retries)
 
     def _to_optional_float(self, value: Any) -> float:
         if value in (None, "", "none"):
@@ -255,10 +268,14 @@ class AskLoneEvaluator(BaseEvaluator):
             expected_answer=answer,
             assistant_answer=assistant_answer
         )
-        content = await self._call_judge(prompt, semaphore)
-        result = _extract_json_dict(content)
+        judge_result = await self._call_judge_with_retry(prompt, semaphore)
+        result = dict(judge_result.get("decision") or {})
         if "is_correct" not in result:
             result["is_correct"] = False
+        if not judge_result.get("success"):
+            result["_judge_parse_error"] = "JudgeJSONParseFailed"
+            result["_judge_raw_response"] = judge_result.get("raw_response", "")
+            result["_judge_parse_attempts"] = judge_result.get("attempts", self.judge_json_retries)
         return result
 
     async def _judge_final_response(
@@ -273,11 +290,35 @@ class AskLoneEvaluator(BaseEvaluator):
             expected_answer=answer,
             assistant_answer=assistant_answer
         )
-        content = await self._call_judge(prompt, semaphore)
-        result = _extract_json_dict(content)
+        judge_result = await self._call_judge_with_retry(prompt, semaphore)
+        result = dict(judge_result.get("decision") or {})
         if "decision" not in result:
             result["decision"] = self._heuristic_decision(assistant_answer)
+        if not judge_result.get("success"):
+            result["_judge_parse_error"] = "JudgeJSONParseFailed"
+            result["_judge_raw_response"] = judge_result.get("raw_response", "")
+            result["_judge_parse_attempts"] = judge_result.get("attempts", self.judge_json_retries)
         return result
+
+    async def _call_judge_with_retry(self, prompt: str, semaphore: asyncio.Semaphore) -> Dict[str, Any]:
+        last_raw_response = ""
+        for attempt in range(1, self.judge_json_retries + 1):
+            content = await self._call_judge(prompt, semaphore)
+            last_raw_response = content or ""
+            parsed = _extract_json_dict(last_raw_response)
+            if parsed:
+                return {
+                    "success": True,
+                    "decision": parsed,
+                    "raw_response": last_raw_response,
+                    "attempts": attempt
+                }
+        return {
+            "success": False,
+            "decision": {},
+            "raw_response": last_raw_response,
+            "attempts": self.judge_json_retries
+        }
 
     async def _call_judge(self, prompt: str, semaphore: asyncio.Semaphore) -> str:
         async with semaphore:
