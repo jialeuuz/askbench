@@ -6,7 +6,6 @@ from ask_eval.evaluators.degrade.medqa_de import MedQADeEvaluator
 from ask_eval.evaluators.degrade.math500_de import Math500DeEvaluator
 from ask_eval.evaluators.ask import AskEvaluator
 from ask_eval.evaluators.ask_lone import AskLoneEvaluator
-from ask_eval.evaluators.fata import FataEvaluator
 
 
 
@@ -33,6 +32,6 @@ EVALUATOR_MAP = {
     "ask_lone_gpqade":AskLoneEvaluator,
     "ask_lone_math500de":AskLoneEvaluator,
     "ask_lone_medqade":AskLoneEvaluator,
-    "fata_math500":FataEvaluator,
-    "fata_medqa":FataEvaluator,
+    "fata_math500":AskEvaluator,
+    "fata_medqa":AskEvaluator,
 }

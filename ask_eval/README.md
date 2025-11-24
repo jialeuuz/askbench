@@ -26,7 +26,6 @@ python scripts/main.py --config config/base.ini
 | `scripts/main.py` | 评测入口：逐任务读取配置并调度相应的运行脚本 |
 | `scripts/run.py` | 单轮评测主循环（Math/MedQA 等） |
 | `scripts/run_ask.py` | AskBench 多轮对话评测（被测模型 + 裁判模型） |
-| `scripts/run_fata.py` | FATA 双阶段评测入口（澄清 + 强化回答） |
 | `scripts/run_ask_lone.py` | AskLone 评测入口，执行通过率估计 + 最终答复判定 |
 | `ask_eval/models/` | 模型封装，统一 API 调用、批量推理与保活逻辑 |
 | `ask_eval/data/` | 数据加载器（当前默认读取 `test.jsonl`） |
@@ -42,8 +41,7 @@ python scripts/main.py --config config/base.ini
 2. **逐任务调度**：
    - 默认情况下拼接 `config/common/<task>.ini` 后调用 `scripts/run.py`。
    - 任务名包含 `ask_lone` 时，调用 `scripts/run_ask_lone.py` 执行通过率评估 + 最终答复评分。
-   - 任务名包含 `fata` 时，调用 `scripts/run_fata.py` 执行 F1 澄清 + F2 强化回答的双阶段评测。
-   - 其它包含 `ask` 或 `quest_bench` 的任务改用 `scripts/run_ask.py` 触发多轮评测。
+   - 任务名包含 `fata`、`ask` 或 `quest_bench` 时，统一调用 `scripts/run_ask.py` 触发 Judge 驱动的多轮评测（FATA 逻辑见下文）。
    - 配置中若将 `tasks_config_path` 指向其它模板（如 EvalScope/OpenCompass），会走相应分支并在结束后写入最终指标。
 3. **结果写出**：
    - 单轮评测：生成 `api_responses.json`、`summary_results.json`、`results.txt`。
@@ -151,47 +149,27 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 ## FATA 双阶段评测
 
 - **数据来源**：`fata_math500` 与 `fata_medqa` 直接复用 AskMind 数据（分别从 `ask_mind_math500de` 与 `ask_mind_medqade` 中复制），统一存放在 `data/fata/<task>/test.jsonl`。
-- **阶段流程**：
-  1. **Stage F1（Systemized Clarification）**：被测模型收到下面的英文 prompt，仅允许输出补充问题列表。
+- **交互流程**：
+  1. 被测模型收到官方 FATA prompt，并在其中看到降质题面：
      ```
-     You are a senior expert in this field.
-     
-     The user's question is:
-     <degraded_question>
-     
-     Before answering, produce a structured checklist of the key follow-up questions you need to ask the user so you can uncover all missing details in a single turn.
-     Requirements:
-     1) Cover aspects such as background/context, constraints, goals and preferences, environmental factors, and historical information when relevant.
-     2) Organize the output into clear sections or bullet groups with concise questions.
-     3) Whenever a question may confuse non-expert users, provide example answer options in parentheses to illustrate what you are asking for.
-     4) If the information is already sufficient, respond with "The information is sufficient, no follow-up questions are needed."
-     
-     Do not request sensitive personal data (phone numbers, ID numbers, or exact home addresses).
-     Only output the clarifying-question checklist.
+     User request: <degraded_question>.
+     To better assist me, before offering advice, please adopt the perspective of an expert in the relevant field
+     and ask questions to help you identify any missing key information.
+     Please ensure the problem is structured clearly and expressed concisely, with example guidance,
+     just like how experts ask users questions during consultations to gather key information before providing solutions.
+
+     After I provide additional information, please then offer a more personalized and practical solution as an expert in that field.
+     If all key information has already been provided, please directly give the solution.
+     Note: Maintain a positive attitude, and do not request phone numbers, ID numbers, or other sensitive data.
      ```
-     Judge 模型拿到 F1 输出后，会结合 `ori_question`、`degraded_question`、`degraded_info` 与 `required_points` 生成真实用户的逐条回复。回复被格式化为编号列表，“Question ... / Answer ...” 的形式。
-  2. **Stage F2（Context-enriched Answering）**：被测模型拿到原问题（仍是 `degraded_question`）以及「F1 问题 + 用户逐条回答」文本，再次提示：
-     ```
-     You are a senior expert in this field.
-     
-     Original problem:
-     <degraded_question>
-     
-     User replies to your clarifying checklist:
-     <F1 question + answer pairs>
-     
-     Based on the complete context, deliver a personalized and actionable solution.
-     Requirements:
-     1) Explicitly connect your advice to the user's objectives and constraints.
-     2) Provide concrete steps, strategies, and cautions.
-     3) If critical information is still missing, first point out the gap, explain why it matters, and then offer the best recommendation possible with the available data.
-     
-     Keep the tone positive, clear, and easy to read.
-     ```
+     模型可以在第一轮提出一次澄清问题，或直接作答。
+  2. 每轮回复都会交给裁判（Judge）模型。裁判拿到 `ori_question`、`degraded_info`、`required_points` 与 `expected_answer`，判断当前回复是否在补充信息：
+     - 若确实在提问，裁判会按照原题事实写出用户补充信息，并把这些内容作为第二轮输入传给被测模型；
+     - 若已经开始作答，则直接判定正误。
+  3. 最多只允许两轮。第二轮若仍然追问，会被视为违反“只问一次就给答案”的规则而判错。
 - **判分机制**：
-  - Stage F1 仅生成问题，不直接判分。
-  - Stage F2 的最终回答会交给 Judge 模型，与 `expected_answer` 比对，Judge 用 ```json 块输出 `{"is_correct": true/false, "reason": "..."}`，无法解析 JSON 时视为错误。
-  - `scripts/run_fata.py` 输出 `fata_detailed_results.json`（包含两轮 prompt/回复、裁判结论）与 `summary_results.json`，`results.txt` 中记录整体准确率与异常统计。
+  - 裁判输出 JSON，包含 `needs_more_info`、`user_reply`（可选）、`is_correct` 与 `reason`。当 `needs_more_info=false` 时，会基于 `expected_answer` 判定最终是否正确。
+  - 输出文件沿用 AskBench 规格：`askbench_detailed_results.json` 记录完整对话轨迹与裁判结论，`summary_results.json`/`results.txt` 则统计准确率、是否触发澄清、第二轮仍提问的失败案例以及裁判解析失败数。
 
 ## 扩展指南
 
@@ -245,8 +223,8 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 | `ask_mind_medqade` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench + MedQA 降质组合，裁判流程同上。 |
 | `ask_mind_gpqade` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench + GPQA 降质组合。 |
 | `ask_mind_bbhde` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench + BBH 降质组合。 |
-| `fata_math500` | `data/fata/fata_math500` | `FataEvaluator` | 双轮（澄清+强化回答） | Stage F1 要求结构化补充问题，Judge 生成额外信息，Stage F2 作答后由 Judge 判定是否与 `expected_answer` 一致。 |
-| `fata_medqa` | `data/fata/fata_medqa` | `FataEvaluator` | 双轮（澄清+强化回答） | 与 `fata_math500` 相同逻辑，只是题源换为 MedQA。 |
+| `fata_math500` | `data/fata/fata_math500` | `AskEvaluator` | 双轮（澄清+最终回答） | 官方 prompt 先引导模型提问一次，Judge 判断是否需要补充信息并模拟用户回复，再由同一 Judge 判定最终答案是否正确。 |
+| `fata_medqa` | `data/fata/fata_medqa` | `AskEvaluator` | 双轮（澄清+最终回答） | 流程与 `fata_math500` 相同，只是题源换为 MedQA。 |
 | `quest_bench` | `data/ask_bench/quest_bench` | `AskEvaluator` | 多轮裁判 | QuestBench 任务，仍沿用 AskEvaluator 的多轮裁判与模拟用户流程。 |
 
 > 注：所有 `ask_*` 与 `quest_bench` 系列都依赖 `[evaluatorconfig]` 中的裁判模型与多轮对话框架；普通数学/医学任务则是单轮调用 + 正则化答案比对。新增任务时可对照该表快速定位所需的数据结构与评估器。

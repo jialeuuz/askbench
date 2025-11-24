@@ -21,4 +21,3 @@ scripts/main.py
 scripts/run.py
 scripts/run_ask.py
 scripts/run_ask_lone.py
-scripts/run_fata.py

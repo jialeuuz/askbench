@@ -23,6 +23,18 @@ WEAK_GUIDANCE_PROMPT = "If you need more information to provide a better and mor
 # Strong guidance: A direct instruction that the model MUST ask questions before answering.
 STRONG_GUIDANCE_PROMPT = "Important: My question is likely incomplete. You must ask clarifying questions to gather all the necessary information before you provide a final answer."
 
+FATA_INITIAL_PROMPT_TEMPLATE = """
+User request: <degraded_question>.
+To better assist me, before offering advice, please adopt the perspective of an expert in the relevant field
+and ask questions to help you identify any missing key information.
+Please ensure the problem is structured clearly and expressed concisely, with example guidance,
+just like how experts ask users questions during consultations to gather key information before providing solutions.
+
+After I provide additional information, please then offer a more personalized and practical solution as an expert in that field.
+If all key information has already been provided, please directly give the solution.
+Note: Maintain a positive attitude, and do not request phone numbers, ID numbers, or other sensitive data.
+""".strip()
+
 
 ARBITER_EVALUATOR_PROMPT_TEMPLATE = """
 You are an expert evaluator reviewing the last response from an AI assistant that must resolve all scenario-specific checkpoints before committing to a final answer.
@@ -232,6 +244,7 @@ class AskEvaluator(BaseEvaluator):
         self.judge_model = judge_model
         self.judge_config = judge_config or {}
         self.task_label = eval_config.get("task_label", "AskBench")
+        self._is_fata_task = str(self.task_label or "").startswith("fata_")
         self.model_max_concurrent = self._normalize_concurrency(
             eval_config.get("max_concurrent"),
             default=15
@@ -302,6 +315,13 @@ class AskEvaluator(BaseEvaluator):
             "attempts": MAX_JUDGE_JSON_RETRIES
         }
 
+    def _build_initial_prompt(self, sample_data: Dict[str, Any], scenario_fields: Dict[str, Any]) -> str:
+        base_prompt = scenario_fields.get("question_text") or sample_data.get("ori_question", "")
+        if self._is_fata_task:
+            question = sample_data.get("degraded_question") or base_prompt
+            return FATA_INITIAL_PROMPT_TEMPLATE.replace("<degraded_question>", question or "")
+        return base_prompt
+
     async def evaluate_multi_turn(self, args: Namespace, test_data: List[Dict], max_turns: int) -> Tuple[float, List[bool], str]:
         print(f"Starting turn-by-turn evaluation for {len(test_data)} samples with max {max_turns} turns...")
         self._ensure_semaphores()
@@ -310,8 +330,9 @@ class AskEvaluator(BaseEvaluator):
         active_samples = []
         for i, sample_data in enumerate(test_data):
             scenario_fields = prepare_scenario_fields(sample_data)
-            visible_question = scenario_fields["question_text"] or sample_data.get("ori_question", "")
-            initial_history = [{"role": "user", "content": (visible_question or "") + forced_guidance}]
+            initial_prompt = self._build_initial_prompt(sample_data, scenario_fields)
+            initial_content = (initial_prompt or "") + forced_guidance
+            initial_history = [{"role": "user", "content": initial_content}]
             required_points = list(scenario_fields["points"])
             active_samples.append({
                 "id": sample_data.get("id", i),
