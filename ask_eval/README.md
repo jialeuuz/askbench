@@ -76,7 +76,7 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
 
 - **数学与常规 QA**：包含 `problem` / `ori_question` 与 `expected_answer`。
 - **降质任务（*_de）**：使用 `degraded_question` 和 `expected_answer`。
-- **AskBench 系列**：样本包含 `degraded_question`、`ori_question`、`expected_answer`、`degraded_info`，以及 `required_points`（列出必须补齐的关键信息），用于多轮对话模拟。
+- **AskBench 系列**：样本包含 `degraded_question`、`ori_question`、`expected_answer`、`degraded_info`，以及 `required_points`（列出必须补齐的关键信息，现已覆盖 ask_mind* 与 quest_bench），用于多轮对话模拟。
 - **AskLone 系列**：只使用 `ori_question` 与 `expected_answer`，用于单轮作答与“不会做就承认”评估。
 
 如需引入新任务，可在 `LOADER_MAP` 注册自定义加载器，或沿用 JSONL 格式。
@@ -126,7 +126,7 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 
 ## AskMind 指标扩展
 
-- **新增数据字段**：`data/ask_bench/ask_mind/*/test.jsonl` 现包含 `required_points`，用于列出所有被劣化/缺失的关键信息，方便裁判判断模型是否已经问完必要的问题。例如：
+- **新增数据字段**：`data/ask_bench/ask_mind/*/test.jsonl` 以及 `data/ask_bench/quest_bench/test.jsonl` 现包含 `required_points`，用于列出所有被劣化/缺失的关键信息，方便裁判判断模型是否已经问完必要的问题。例如：
   ```json
   {
     "degraded_question": "...",
@@ -143,7 +143,7 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
   - 只统计有效样本的准确率；
   - “合规率” (cov_rate)——在给出最终答案前是否补齐全部 `required_points`；
   - “冗余追问信率” (unq_rate)——信息已经齐全仍继续提问的样本数与事件数；
-  - “综合得分” (score)——仅对 `ask_mind_math500de/medqade/gpqade/bbhde` 与 `ask_overconfidence(+_math500/+_medqa)` 计算，按照 `0.5 * acc + 0.3 * cov_rate + 0.2 * (1 - unq_rate)` 汇总，`unq_rate` 越低越好；
+  - “综合得分” (score)——适用于 `ask_mind_math500de/medqade/gpqade/bbhde`、`ask_overconfidence(+_math500/+_medqa)` 以及 `quest_bench`，按照 `0.5 * acc + 0.3 * cov_rate + 0.2 * (1 - unq_rate)` 汇总，`unq_rate` 越低越好；
   - 全量原因分布（含被跳过样本），方便定位问题。
 
 ## FATA 双阶段评测
@@ -225,6 +225,6 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 | `ask_mind_bbhde` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench + BBH 降质组合。 |
 | `fata_math500` | `data/fata/fata_math500` | `AskEvaluator` | 双轮（澄清+最终回答） | 官方 prompt 先引导模型提问一次，Judge 判断是否需要补充信息并模拟用户回复，再由同一 Judge 判定最终答案是否正确。 |
 | `fata_medqa` | `data/fata/fata_medqa` | `AskEvaluator` | 双轮（澄清+最终回答） | 流程与 `fata_math500` 相同，只是题源换为 MedQA。 |
-| `quest_bench` | `data/ask_bench/quest_bench` | `AskEvaluator` | 多轮裁判 | QuestBench 任务，仍沿用 AskEvaluator 的多轮裁判与模拟用户流程。 |
+| `quest_bench` | `data/ask_bench/quest_bench` | `AskEvaluator` | 多轮裁判 | QuestBench 任务，沿用 AskEvaluator + `required_points` 清单，Judge 会按 ask_mind 体系判定合规性。 |
 
 > 注：所有 `ask_*` 与 `quest_bench` 系列都依赖 `[evaluatorconfig]` 中的裁判模型与多轮对话框架；普通数学/医学任务则是单轮调用 + 正则化答案比对。新增任务时可对照该表快速定位所需的数据结构与评估器。

@@ -1,0 +1,16 @@
+评估集: quest_bench
+任务名称: quest_bench
+最终正确率 (Accuracy): 0.2961
+开始时间: 2025-11-24 15:47:59
+结束时间: 2025-11-24 15:51:07
+总耗时: 0:03:08.060386
+
+quest_bench Final Accuracy: 0.2961 (61 / 206)
+- Valid samples: 206 / 206 (skipped 0)
+- Final answers after covering all required points: 64 / 206 (cov_rate=31.1%)
+- 综合得分 (score): 0.4354 (acc=0.2961, cov_rate=0.3107, unq_rate=0.0291)
+- Samples with unnecessary clarifying questions after all info was available: 6 / 206 (unq_rate=2.9%, 6 total events)
+
+Evaluation Outcome Distribution:
+  - FinalAnswerMissingInfo: 142 samples (68.9%)
+  - FinalAnswerEvaluated: 64 samples (31.1%)

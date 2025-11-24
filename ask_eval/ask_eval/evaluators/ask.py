@@ -211,6 +211,7 @@ AGGREGATED_SCORE_TASKS = {
     "ask_overconfidence",
     "ask_overconfidence_math500",
     "ask_overconfidence_medqa",
+    "quest_bench",
 }
 
 ASK_MIND_TOTAL_SCORE_WEIGHTS = {

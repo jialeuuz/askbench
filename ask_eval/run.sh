@@ -14,20 +14,22 @@ DEFAULT_RESULTS_ROOT="results"
 # [可选] 模型 sk_token
 MODEL_SK_TOKEN="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzbFhwYnpMOHRHenhnY2dFdFh4azgxMzVIdUhuSGlZYiJ9.e6PbiPCLNvBoGDcbZmHYiWsk6VE9b9tvmoCoT_zVM4U"
 # [必需] 模型的 API URL
-# API_URL="http://api-hub.inner.chj.cloud/llm-gateway/v1"
+API_URL="http://api-hub.inner.chj.cloud/llm-gateway/v1"
 # MODEL_NAME="azure-gpt-4_1"
-API_URL="http://10.80.12.180:8012/v1"
-MODEL_NAME="default"
+MODEL_NAME="gemini-2_5-pro"
+# API_URL="http://10.80.12.180:8012/v1"
+# MODEL_NAME="default"
 # [必需] 逗号分隔的任务列表
+# ask_lone_math500de,ask_lone_medqade,ask_lone_gpqade,ask_lone_bbhde
 # math500,medqa,gpqa
 # math500_de,medqa_de
 # quest_bench
 # ask_mind_math500de,ask_mind_medqade,ask_mind_gpqade,ask_mind_bbhde
-# ask_lone_math500de,ask_lone_medqade,ask_lone_gpqade,ask_lone_bbhde
+# ask_overconfidence_math500,ask_overconfidence_medqa
 # fata_math500,fata_medqa   # FATA 双阶段任务
-TASKS="ask_mind_math500de"
+TASKS="ask_mind_math500de,ask_mind_medqade,ask_overconfidence_math500,ask_overconfidence_medqa"
 # [可选] 手动指定结果保存目录。若不指定，将根据模型和任务自动生成。
-SAVE_DIR="results/test"
+SAVE_DIR="results/test-gemini-2_5-pro"
 # SAVE_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/results/qwen3_8b"
 # [可选] [evaluatorconfig] api_url
 EVAL_API_URL="http://api-hub.inner.chj.cloud/llm-gateway/v1"
@@ -41,9 +43,9 @@ MAX_TOKENS=28000
 # [可选] [generateconfig] temperature
 TEMPERATURE="0.7"
 # [可选] [generateconfig] max_concurrent
-GEN_MAX_CONCURRENT=10
+GEN_MAX_CONCURRENT=100
 # [可选] [evaluatorconfig] max_concurrent
-EVAL_MAX_CONCURRENT=50
+EVAL_MAX_CONCURRENT=100
 
 
 # --- 解析命令行参数 ---

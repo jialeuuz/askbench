@@ -34,7 +34,7 @@ async def run_ask_evaluation(config):
     print(f"评估每个问题将尝试 {n_attempts} 次")
     
     # 从配置中获取最大对话轮次，提供一个默认值
-    max_turns = config.getint("evaluatorconfig", "max_turns", fallback=5) # 默认5轮
+    max_turns = config.getint("evaluatorconfig", "max_turns", fallback=3) # 默认5轮
 
     evalset_name = config.get("evalset", "evalsetname")
     generate_config["task_label"] = evalset_name
