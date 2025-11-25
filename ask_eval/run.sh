@@ -15,8 +15,8 @@ DEFAULT_RESULTS_ROOT="results"
 MODEL_SK_TOKEN="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzbFhwYnpMOHRHenhnY2dFdFh4azgxMzVIdUhuSGlZYiJ9.e6PbiPCLNvBoGDcbZmHYiWsk6VE9b9tvmoCoT_zVM4U"
 # [必需] 模型的 API URL
 API_URL="http://api-hub.inner.chj.cloud/llm-gateway/v1"
-# MODEL_NAME="azure-gpt-4_1"
-MODEL_NAME="gemini-2_5-pro"
+MODEL_NAME="azure-gpt-4_1"
+# MODEL_NAME="gemini-2_5-pro"
 # API_URL="http://10.80.12.180:8012/v1"
 # MODEL_NAME="default"
 # [必需] 逗号分隔的任务列表
@@ -27,9 +27,9 @@ MODEL_NAME="gemini-2_5-pro"
 # ask_mind_math500de,ask_mind_medqade,ask_mind_gpqade,ask_mind_bbhde
 # ask_overconfidence_math500,ask_overconfidence_medqa
 # fata_math500,fata_medqa   # FATA 双阶段任务
-TASKS="ask_mind_math500de,ask_mind_medqade,ask_overconfidence_math500,ask_overconfidence_medqa"
+TASKS="math500,medqa"
 # [可选] 手动指定结果保存目录。若不指定，将根据模型和任务自动生成。
-SAVE_DIR="results/test-gemini-2_5-pro"
+SAVE_DIR="results/test-gpt-4_1"
 # SAVE_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/results/qwen3_8b"
 # [可选] [evaluatorconfig] api_url
 EVAL_API_URL="http://api-hub.inner.chj.cloud/llm-gateway/v1"
@@ -38,8 +38,8 @@ EVAL_SK_TOKEN="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzbFhwYnpMOHRHenhn
 # [可选] 裁判模型名字
 EVAL_MODEL_NAME="azure-gpt-4_1"
 # EVAL_API_URL="https://lisunzhu123.fc.chj.cloud/gpt_41"
-# [可选] [generateconfig] max_tokens 
-MAX_TOKENS=28000
+# [可选] [generateconfig] max_tokens
+MAX_TOKENS=16000
 # [可选] [generateconfig] temperature
 TEMPERATURE="0.7"
 # [可选] [generateconfig] max_concurrent

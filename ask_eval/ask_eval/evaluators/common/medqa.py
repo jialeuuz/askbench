@@ -1,18 +1,38 @@
 from ask_eval.evaluators.base_evaluator import BaseEvaluator
+from ask_eval.evaluators.judge_mixin import JudgeEvaluatorMixin
 from typing import Dict, List, Tuple
-import json
-import os
-import numpy as np
-import pandas as pd
 import re
-from tqdm import tqdm
 
 choices = ["A", "B", "C", "D"]
+MEDQA_JUDGE_PROMPT = """
+You are judging whether a multiple-choice medical answer is correct.
+The assistant must pick the same option as the ground-truth answer.
+- If the assistant never states a final option, mark it incorrect.
+- Ignore extra explanation and focus on the chosen option.
 
-class MedQAEvaluator(BaseEvaluator):
+Question:
+{question}
+
+Ground-truth answer:
+{expected_answer}
+
+Assistant response:
+{model_response}
+
+Extracted option (if any):
+{extracted_answer}
+
+Reply with:
+Reasoning: <short explanation>
+```json
+{{"reason": "<why>", "result": "correct" | "incorrect"}}
+```
+""".strip()
+
+class MedQAEvaluator(JudgeEvaluatorMixin, BaseEvaluator):
     """MedQA评估器"""
-    def __init__(self, model, eval_config: Dict):
-        super().__init__(model, eval_config)
+    def __init__(self, model, eval_config: Dict, judge_model=None, judge_config: Dict = None):
+        super().__init__(model=model, eval_config=eval_config, judge_model=judge_model, judge_config=judge_config)
         self.few_shot_prompt = None
         
     def format_example(self, data: Dict, include_answer: bool = False) -> str:
@@ -78,81 +98,6 @@ class MedQAEvaluator(BaseEvaluator):
             return match.group(0)
             
         return "Error"
-        
-    def validate_answer(self, prediction: str, reference: str) -> bool:
-        """
-        验证答案是否正确。
-        现在接收的reference是字符串形式的正确选项（如 "A"）。
-        """
-        # 检查预测或参考答案是否在提取时出错
-        if not prediction or prediction.strip().upper() == "ERROR":
-            return False
-        if not reference or reference.strip().upper() == "ERROR":
-            # 如果参考答案无法提取，说明数据有问题，也算作错误
-            return False
-
-        # 直接比较标准化后的字符串
-        return prediction.strip().upper() == reference.strip().upper()
-
-    def evaluate_responses(self, args, test_data: List[Dict], responses: List[str], thinking_processes: List[str], truncated_flags: List[str], prompts: List[str]) -> tuple:
-        """评估响应结果"""
-        cors = []  # 记录正确性
-        response_records = []
-        
-        # 提取模型预测的答案
-        responses_extract = [self.extract_answer(response) for response in responses]
-
-        # 统计截断情况
-        truncation_stats = {
-            "not_truncated": 0,
-            "truncated": 0,
-            "none": 0
-        }
-        
-        # 处理结果
-        for i, (data, response, response_extract, thinking, truncated, prompt) in enumerate(zip(test_data, responses, responses_extract, thinking_processes, truncated_flags, prompts)):
-            truncation_stats[truncated] = truncation_stats.get(truncated, 0) + 1
-            
-            # 从 data['answer'] 中提取标准答案（如 "A"）
-            # 复用 extract_answer 函数来处理 "The answer is A." 这样的格式
-            reference_answer_raw = data.get("expected_answer", "")
-            reference_answer_extract = self.extract_answer(reference_answer_raw)
-
-            # 验证答案
-            cor = 1 if self.validate_answer(response_extract, reference_answer_extract) else 0
-            cors.append(cor)
-            
-            # 记录结果
-            record = {
-                "question": prompt,
-                "response": response,
-                "extracted_answer": response_extract,
-                "ground_truth_raw": reference_answer_raw, # 记录原始答案
-                "ground_truth_extracted": reference_answer_extract, # 记录提取后的答案
-                "correct": cor,
-                "thinking_process": thinking,
-                "truncated": truncated
-            }
-            response_records.append(record)
-
-        # 保存详细结果
-        output_file = os.path.join(args.save_dir, "api_responses.json")
-        os.makedirs(args.save_dir, exist_ok=True)
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(response_records, f, indent=2, ensure_ascii=False)
-
-        # 计算准确率
-        acc = sum(cors) / len(cors) if cors else 0
-        
-        # 生成日志，包含准确率和截断统计
-        log = f"Average accuracy: {acc:.3f}\n"
-        log += "Truncation statistics:\n"
-        for status, count in truncation_stats.items():
-            percentage = count / len(responses) * 100 if responses else 0
-            log += f"- {status}: {count} ({percentage:.1f}%)\n"
-        
-        return acc, cors, log
-        
     async def infer_batch(self, test_data: List[Dict], train_data: List[Dict] = None) -> Tuple[List[str], List[str], List[str], List[str]]:
         """批量推理"""
         prompts = []
@@ -173,3 +118,13 @@ class MedQAEvaluator(BaseEvaluator):
             truncated_flags = ["none"] * len(prompts)
                 
         return responses, thinking_processes, truncated_flags, prompts
+
+    def build_judge_prompt(self, sample: Dict, prompt: str, model_response: str, extracted_answer: str) -> str:
+        question_text = sample.get("ori_question") or prompt
+        expected = sample.get("expected_answer", "")
+        return MEDQA_JUDGE_PROMPT.format(
+            question=question_text.strip(),
+            expected_answer=str(expected).strip(),
+            model_response=str(model_response).strip(),
+            extracted_answer=str(extracted_answer),
+        )

@@ -2,6 +2,7 @@
 import os
 import asyncio
 import argparse
+import inspect
 from datetime import datetime
 from typing import Dict
 import json
@@ -13,11 +14,16 @@ from ask_eval.evaluators.evaluator_map import EVALUATOR_MAP
 from ask_eval.data.data_map import LOADER_MAP
 
 
-def create_evaluator(evalset_name: str, model, generate_config: Dict):
+def create_evaluator(evalset_name: str, model, generate_config: Dict, judge_model=None, judge_config: Dict = None):
     """创建评估器实例"""
     evaluator_class = EVALUATOR_MAP.get(evalset_name)
     if not evaluator_class:
         raise ValueError(f"Unknown evalset: {evalset_name}")
+    requires_judge = getattr(evaluator_class, "requires_judge", False)
+    if requires_judge:
+        if judge_model is None:
+            raise ValueError(f"Evaluator {evalset_name} requires a judge model but none was provided.")
+        return evaluator_class(model, generate_config, judge_model=judge_model, judge_config=judge_config)
     return evaluator_class(model, generate_config)
 
 async def run_evaluation(config):
@@ -26,6 +32,7 @@ async def run_evaluation(config):
     model_config = get_model_config(config)
     generate_config = get_generate_config(config)
     path_config = get_path_config(config)
+    evaluator_config = get_evaluator_config(config) if config.has_section("evaluatorconfig") else {}
     evalset_name = config.get("evalset", "evalsetname")
     
     # 获取评估器特定配置
@@ -54,7 +61,22 @@ async def run_evaluation(config):
     
     # 创建模型和评估器
     model = create_model(model_config, generate_config)
-    evaluator = create_evaluator(evalset_name, model, generate_config)
+
+    evaluator_class = EVALUATOR_MAP.get(evalset_name)
+    if not evaluator_class:
+        raise ValueError(f"Unknown evalset: {evalset_name}")
+    requires_judge = getattr(evaluator_class, "requires_judge", False)
+
+    judge_model = None
+    judge_config = None
+    if requires_judge:
+        if not evaluator_config:
+            raise ValueError(f"Evaluator {evalset_name} requires [evaluatorconfig] settings.")
+        judge_config = evaluator_config
+        print("正在创建Judge模型...")
+        judge_model = create_model(judge_config, judge_config)
+
+    evaluator = create_evaluator(evalset_name, model, generate_config, judge_model=judge_model, judge_config=judge_config)
     
     # 创建数据加载器并加载数据
     data_dir = os.path.join(path_config["data_dir"], evalset_name)
@@ -90,8 +112,7 @@ async def run_evaluation(config):
         # 获取模型响应
         responses, thinking_processes, truncated_flags, prompts = await evaluator.infer_batch(test_data, train_data)
         
-        # 评估本次结果
-        acc, cors, log = evaluator.evaluate_responses(
+        evaluation_args = dict(
             args=argparse.Namespace(save_dir=os.path.join(save_dir, f"attempt_{attempt+1}")),
             test_data=test_data,
             responses=responses,
@@ -99,6 +120,11 @@ async def run_evaluation(config):
             truncated_flags=truncated_flags,
             prompts=prompts
         )
+        evaluate_async = getattr(evaluator, "evaluate_responses_async", None)
+        if evaluate_async and inspect.iscoroutinefunction(evaluate_async):
+            acc, cors, log = await evaluate_async(**evaluation_args)
+        else:
+            acc, cors, log = evaluator.evaluate_responses(**evaluation_args)
     
         # 保存这次评估的所有结果
         all_responses.append(responses)
@@ -114,14 +140,18 @@ async def run_evaluation(config):
     # 计算最终指标
     # 重组数据为每个问题的所有尝试结果
     question_cors = []
+    total_correct = 0
+    total_evaluated = 0
     for q_idx in range(len(test_data)):
         q_cors = [all_cors[attempt][q_idx] for attempt in range(n_attempts)]
         question_cors.append(q_cors)
+        for value in q_cors:
+            if value is not None:
+                total_correct += value
+                total_evaluated += 1
 
     # 计算平均准确率
-    all_attempts_total = sum([sum(cors) for cors in question_cors])
-    total_attempts = len(test_data) * n_attempts
-    average_acc = all_attempts_total / total_attempts
+    average_acc = total_correct / total_evaluated if total_evaluated else 0
     
     # 记录每个问题的所有结果
     final_records = []
@@ -132,19 +162,24 @@ async def run_evaluation(config):
             "attempts": []
         }
         
+        attempt_values = question_cors[q_idx]
         for attempt in range(n_attempts):
+            cor_value = attempt_values[attempt]
             attempt_record = {
                 "response": all_responses[attempt][q_idx],
                 "thinking_process": all_thinking_processes[attempt][q_idx],
                 "truncated": all_truncated_flags[attempt][q_idx],
-                "correct": all_cors[attempt][q_idx],
+                "correct": cor_value,
                 "attempt_num": attempt + 1
             }
             record["attempts"].append(attempt_record)
         
         # 添加汇总指标
         if n_attempts > 1:
-            record["pass@1"] = sum(all_cors[a][q_idx] for a in range(n_attempts)) / n_attempts
+            valid_attempts = [val for val in attempt_values if val is not None]
+            record["pass@1"] = (
+                sum(valid_attempts) / len(valid_attempts) if valid_attempts else None
+            )
         
         final_records.append(record)
     

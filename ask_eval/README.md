@@ -62,7 +62,7 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
   - `[generateconfig]`：推理参数（`max_tokens`、`temperature`、`max_concurrent`、`n_attempts` 等）。
   - `[tasks]`：任务开关与任务配置目录。
   - `[path]`：默认数据及结果根目录。
-  - `[evaluatorconfig]`：AskBench 等需要裁判模型时的配置。
+  - `[evaluatorconfig]`：裁判模型配置，除 AskBench/AskLone 任务外，也会被 math500 / medqa / gpqa 等单轮任务复用。
 - **任务配置 (`config/common/<task>.ini`)**
   - 覆写数据路径、任务别名、默认 API 等。
   - `load_merged_config` 会以基础配置为主导，逐段覆盖任务配置。
@@ -110,6 +110,15 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
   2. 裁判模型判定回复是否是终结回答及其正确性。
   3. 若未终结且仍有轮次，请裁判模型根据隐藏的 `ori_question` 与场景上下文（如 `degraded_info` / `overconfidence_info`）生成符合人类行为的追加信息。
   4. 记录回合日志，直至模型回答或轮次耗尽。
+
+### 单轮 Judge 判分
+
+`math500`、`medqa` 与 `gpqa` 现统一通过裁判模型判分，以替代脆弱的正则比对：
+
+- 每个样本都会把题干、标准答案以及正则提取到的候选答案一起交给 Judge。
+- 裁判需先输出 `Reasoning: ...`，再给出一个 JSON 代码块，字段固定为 `{"reason": "...", "result": "correct" | "incorrect"}`，从而满足“先解释、后给结论”的需求。
+- JSON 解析失败会自动重试，最多 10 次。若仍然失败，则跳过该样本（`skipped=true`），不会纳入准确率/Pass@1，且在 `api_responses.json` 中记录失败原因。
+- `[evaluatorconfig]` 中的裁判模型配置会被这些单轮任务自动复用，无需逐任务重复填写。
 
 最后会生成 `askbench_detailed_results.json`，记录每个样本的对话轨迹、裁判判定与失败原因统计。
 
@@ -205,11 +214,11 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 
 | 任务标识 | 数据目录 | 评估器 | 交互模式 | 核心逻辑 |
 | --- | --- | --- | --- | --- |
-| `math500` | `data/common/math500` | `Math500Evaluator` | 单轮 | 数学题目，调用被测模型一次，正则/Heuristics 提取答案后用 SymPy、`math_equal` 校验。 |
+| `math500` | `data/common/math500` | `Math500Evaluator` | 单轮 + 裁判 | 单轮作答，由 Judge 根据题干与标准答案判断是否正确，并记录跳过/失败原因。 |
 | `math500_de` | `data/degrade/math500_de` | `Math500DeEvaluator` | 单轮 | 降质版数学题，Prompt 使用 `degraded_question`，答案提取逻辑同 Math500。 |
-| `medqa` | `data/common/medqa` | `MedQAEvaluator` | 单轮 | 医学多选题，模型回答一次，提取选项字母并直接比对。 |
+| `medqa` | `data/common/medqa` | `MedQAEvaluator` | 单轮 + 裁判 | 单轮多选题，由 Judge 读取题干与参考答案 JSON 判定正误。 |
 | `medqa_de` | `data/degrade/medqa_de` | `MedQADeEvaluator` | 单轮 | 降质版 MedQA，题干为 `degraded_question`，答案仍是选项匹配。 |
-| `gpqa` | `data/common/gpqa` | `GpqaEvaluator` | 单轮 | 通识问答集，处理方式类似 MedQA。 |
+| `gpqa` | `data/common/gpqa` | `GpqaEvaluator` | 单轮 + 裁判 | 通识问答集，同样将模型答案交由 Judge 判定。 |
 | `ask_overconfidence` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | AskBench 子任务，存在裁判模型；被测模型需通过提问补全信息，裁判负责判定终止与正误。 |
 | `ask_overconfidence_math500` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | Math500 子集的 overconfidence 版本，模型需识别并修正误导点后再作答。 |
 | `ask_overconfidence_medqa` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | MedQA 子集的 overconfidence 版本，字段与 ask_overconfidence_math500 相同。 |
@@ -227,4 +236,4 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 | `fata_medqa` | `data/fata/fata_medqa` | `AskEvaluator` | 双轮（澄清+最终回答） | 流程与 `fata_math500` 相同，只是题源换为 MedQA。 |
 | `quest_bench` | `data/ask_bench/quest_bench` | `AskEvaluator` | 多轮裁判 | QuestBench 任务，沿用 AskEvaluator + `required_points` 清单，Judge 会按 ask_mind 体系判定合规性。 |
 
-> 注：所有 `ask_*` 与 `quest_bench` 系列都依赖 `[evaluatorconfig]` 中的裁判模型与多轮对话框架；普通数学/医学任务则是单轮调用 + 正则化答案比对。新增任务时可对照该表快速定位所需的数据结构与评估器。
+> 注：所有 `ask_*`、`quest_bench` 以及 `math500` / `medqa` / `gpqa` 均依赖 `[evaluatorconfig]` 定义的裁判模型；其余传统任务则仍使用正则或数值对比。新增任务时可对照该表快速定位所需的数据结构与评估器。

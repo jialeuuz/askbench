@@ -9,6 +9,7 @@ from collections import Counter
 from tqdm import tqdm
 
 from ask_eval.evaluators.base_evaluator import BaseEvaluator
+from ask_eval.evaluators.judge_utils import MAX_JUDGE_JSON_RETRIES, parse_json_to_dict
 
 # --- 在这里配置首轮对话的引导模式 ---
 # 可选值: 'none', 'weak', 'strong'
@@ -16,7 +17,6 @@ from ask_eval.evaluators.base_evaluator import BaseEvaluator
 # 'weak': 添加弱引导，暗示模型可以提问
 # 'strong': 添加强引导，明确要求模型必须先提问
 GUIDANCE_MODE = 'none'
-MAX_JUDGE_JSON_RETRIES = 10
 
 # Weak guidance: Politely suggests that the model can ask for more information.
 WEAK_GUIDANCE_PROMPT = "If you need more information to provide a better and more complete answer, please feel free to ask me any questions."
@@ -113,21 +113,6 @@ Provide only the text of your response. Do not add any other explanation or intr
 FORCE_FINAL_ANSWER_PROMPT = """
 \n**This is the final turn.** Based on the information you have gathered so far, you MUST provide a conclusive, final answer. Do not ask any more questions.
 """.strip()
-
-
-def parse_json_to_dict(json_string: str) -> dict:
-    """从模型的Markdown格式响应中解析出JSON字典。"""
-    match = re.search(r"```json\s*([\s\S]+?)\s*```", json_string)
-    if match:
-        json_cleaned = match.group(1).strip()
-    else:
-        # 如果没有找到 markdown block，尝试直接解析整个字符串
-        json_cleaned = json_string.strip()
-        
-    try:
-        return json.loads(json_cleaned)
-    except (json.JSONDecodeError, TypeError):
-        return {} # 返回空字典表示解析失败
 
 
 def format_required_points(points: List[str]) -> str:

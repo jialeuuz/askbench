@@ -25,12 +25,11 @@ def load_merged_config(base_config_path: str, task_config_path: str = None) -> c
     
     # 用基础配置覆盖任务配置
     for section in base_config.sections():
-        if section == "evaluatorconfig":      # 评估器配置，如果任务配置中没有，则不添加
-            if config.has_section(section):
-                for key, value in base_config.items(section):
-                    config.set(section, key, value)
-            else:
-                pass
+        if section == "evaluatorconfig":      # 评估器配置，缺省时沿用基础配置
+            if not config.has_section(section):
+                config.add_section(section)
+            for key, value in base_config.items(section):
+                config.set(section, key, value)
         else:
             if not config.has_section(section):
                 config.add_section(section)

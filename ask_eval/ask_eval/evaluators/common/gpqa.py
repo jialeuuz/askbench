@@ -1,17 +1,42 @@
 from ..base_evaluator import BaseEvaluator
-from typing import Dict, List, Tuple
-import json
-import os
-import numpy as np
+from ask_eval.evaluators.judge_mixin import JudgeEvaluatorMixin
+from typing import Dict, List
 import re
 
 INDEX_TO_LETTER = {0: 'A', 1: 'B', 2: 'C', 3: 'D'}
+GPQA_JUDGE_PROMPT = """
+You are judging whether the assistant answered a multiple-choice GPQA question correctly.
+Consider both the option letter and its meaning.
+- If the assistant never picks a specific option, mark it incorrect.
+- Treat semantically equivalent descriptions of the correct option as correct.
+
+Question:
+{question}
+
+Choices:
+{choices}
+
+Ground-truth answer:
+{expected_answer}
+
+Assistant response:
+{model_response}
+
+Extracted option (if any):
+{extracted_answer}
+
+Reply with:
+Reasoning: <short explanation>
+```json
+{{"reason": "<why>", "result": "correct" | "incorrect"}}
+```
+""".strip()
 
 
-class GpqaEvaluator(BaseEvaluator):
+class GpqaEvaluator(JudgeEvaluatorMixin, BaseEvaluator):
     """评估输出格式的正确性"""
-    def __init__(self, model, eval_config: Dict):
-        super().__init__(model, eval_config)
+    def __init__(self, model, eval_config: Dict, judge_model=None, judge_config: Dict = None):
+        super().__init__(model=model, eval_config=eval_config, judge_model=judge_model, judge_config=judge_config)
 
     def format_example(self, data: Dict, include_answer: bool = False, train_data: List[Dict] = None) -> str:
         """格式化单个样例"""
@@ -58,71 +83,30 @@ D) {data['choice4']}
             print(f"提取答案时出错: {str(e)}")
             return 'Error'
 
-    def validate_answer(self, prediction: str, reference: Dict) -> bool:
-        """验证答案格式是否正确
-        Args:
-            prediction: 模型预测的答案
-            reference: 参考答案格式要求
-        Returns:
-            bool: 是否符合格式要求
-        """
-        prediction = prediction.strip().lower()
-        reference = reference.strip().lower()
-        extracted_answer = self.extract_answer(prediction)
-        if not extracted_answer or extracted_answer.strip() == "":
-            return False
-        return reference in extracted_answer
-
-    def evaluate_responses(self, args, test_data: List[Dict], responses: List[str], thinking_processes: List[str], truncated_flags: List[str], prompts: List[str]) -> tuple:
-        """评估响应结果"""
-        cors = []  # 记录正确性
-        response_records = []
-        
-        # 统计截断情况
-        truncation_stats = {
-            "not_truncated": 0,
-            "truncated": 0,
-            "none": 0
+    def reference_answer_for_record(self, sample: Dict) -> Dict[str, str]:
+        letter = INDEX_TO_LETTER.get(sample.get("correct_index", -1), "")
+        choice_key = f"choice{sample.get('correct_index', 0) + 1}"
+        return {
+            "letter": letter,
+            "text": sample.get(choice_key, "")
         }
-        
-        answers_symbol = [INDEX_TO_LETTER[example['correct_index']] for example in test_data]
-        answers = [example['choice{}'.format(example['correct_index']+1)] for example in test_data]
-        
-        # 评估每个样本
-        for data, response, answer_symbol, answer, thinking, truncated, prompt in zip(test_data, responses, answers_symbol, answers, thinking_processes, truncated_flags, prompts):
-            # 统计截断情况
-            truncation_stats[truncated] = truncation_stats.get(truncated, 0) + 1
-            
-            # 验证答案
-            cor = 1 if self.validate_answer(response, answer_symbol) else 0
-            cors.append(cor)
-            
-            # 记录结果
-            record = {
-                "question": prompt,
-                "response": response,
-                "answer_symbol": answer_symbol,
-                "answer": answer,
-                "correct": cor,
-                "thinking_process": thinking,
-                "truncated": truncated
-            }
-            response_records.append(record)
 
-        # 保存详细结果
-        os.makedirs(args.save_dir, exist_ok=True)
-        output_file = os.path.join(args.save_dir, "api_responses.json")
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(response_records, f, indent=2, ensure_ascii=False)
-
-        # 计算准确率
-        acc = sum(cors) / len(cors)
-        
-        # 生成日志
-        log = f"Format compliance rate: {acc:.3f}\n"
-        log += "Truncation statistics:\n"
-        for status, count in truncation_stats.items():
-            percentage = count / len(responses) * 100
-            log += f"- {status}: {count} ({percentage:.1f}%)\n"
-        
-        return acc, cors, log
+    def build_judge_prompt(self, sample: Dict, prompt: str, model_response: str, extracted_answer: str) -> str:
+        choices_block = "\n".join(
+            [
+                f"{letter}) {sample.get(f'choice{idx + 1}', '')}"
+                for idx, letter in INDEX_TO_LETTER.items()
+            ]
+        )
+        expected_letter = INDEX_TO_LETTER.get(sample.get("correct_index", -1), "")
+        choice_key = f"choice{sample.get('correct_index', 0) + 1}"
+        expected_text = sample.get(choice_key, "")
+        expected = f"{expected_letter}) {expected_text}"
+        question_text = sample.get("question") or prompt
+        return GPQA_JUDGE_PROMPT.format(
+            question=question_text.strip(),
+            choices=choices_block.strip(),
+            expected_answer=expected.strip(),
+            model_response=str(model_response).strip(),
+            extracted_answer=str(extracted_answer),
+        )

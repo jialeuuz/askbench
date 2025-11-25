@@ -1,0 +1,18 @@
+评估集: math500
+任务名称: math500
+准确率: 0.9100
+开始时间: 2025-11-25 09:56:27
+结束时间: 2025-11-25 10:00:54
+总耗时: 0:04:26.461484
+
+详细日志:
+第 1 次推理准确率: 0.9100
+Judge accuracy (valid 500/500 samples): 0.910
+Skipped samples: 0
+Truncation statistics:
+- not_truncated: 500 (100.0%)
+- truncated: 0 (0.0%)
+- none: 0 (0.0%)
+准确率: 0.9100
+总体截断统计:
+- not_truncated: 500 (100.0%)
