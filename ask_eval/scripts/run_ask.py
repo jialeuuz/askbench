@@ -102,11 +102,14 @@ async def run_ask_evaluation(config):
         attempt_end = datetime.now()
         attempt_duration = attempt_end - attempt_start
 
-        attempt_accuracies.append(final_accuracy)
         attempt_logs.append(log)
         # all_scores 当前未用于汇总，但保留该返回以便后续扩展（如计算 pass@k）
 
-        print(f"第 {attempt_idx + 1} 次尝试准确率: {final_accuracy:.4f}")
+        if final_accuracy is not None:
+            attempt_accuracies.append(final_accuracy)
+            print(f"第 {attempt_idx + 1} 次尝试准确率: {final_accuracy:.4f}")
+        else:
+            print(f"第 {attempt_idx + 1} 次尝试 Accuracy: 不适用（该任务不返回准确率）")
 
         if n_attempts > 1:
             attempt_result_file = os.path.join(attempt_save_dir, "results.txt")
@@ -114,7 +117,10 @@ async def run_ask_evaluation(config):
                 f.write(f"评估集: {evalset_name}\n")
                 f.write(f"任务名称: {model_config['task_name']}\n")
                 f.write(f"尝试编号: {attempt_idx + 1}/{n_attempts}\n")
-                f.write(f"AskBench Final Accuracy: {final_accuracy:.4f}\n")
+                if final_accuracy is not None:
+                    f.write(f"AskBench Final Accuracy: {final_accuracy:.4f}\n")
+                else:
+                    f.write("AskBench Final Accuracy: N/A (该基准不提供 Accuracy)\n")
                 f.write(f"开始时间: {attempt_start.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"结束时间: {attempt_end.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"总耗时: {attempt_duration}\n\n")
@@ -124,18 +130,26 @@ async def run_ask_evaluation(config):
     end_time = datetime.now()
     duration = end_time - start_time
 
-    average_accuracy = sum(attempt_accuracies) / len(attempt_accuracies) if attempt_accuracies else 0.0
-    attempt_accuracy_str = ", ".join(f"{acc:.4f}" for acc in attempt_accuracies)
+    accuracy_available = len(attempt_accuracies) == n_attempts and n_attempts > 0
+    average_accuracy = (
+        sum(attempt_accuracies) / len(attempt_accuracies) if accuracy_available else None
+    )
+    attempt_accuracy_str = (
+        ", ".join(f"{acc:.4f}" for acc in attempt_accuracies) if accuracy_available else ""
+    )
 
     result_file = os.path.join(save_dir, "results.txt")
     with open(result_file, 'w', encoding='utf-8') as f:
         f.write(f"评估集: {evalset_name}\n")
         f.write(f"任务名称: {model_config['task_name']}\n")
-        if n_attempts > 1:
-            f.write(f"平均准确率 (尝试次数为{n_attempts}): {average_accuracy:.4f}\n")
-            f.write(f"各次尝试准确率: {attempt_accuracy_str}\n")
+        if accuracy_available:
+            if n_attempts > 1:
+                f.write(f"平均准确率 (尝试次数为{n_attempts}): {average_accuracy:.4f}\n")
+                f.write(f"各次尝试准确率: {attempt_accuracy_str}\n")
+            else:
+                f.write(f"最终正确率 (Accuracy): {average_accuracy:.4f}\n")
         else:
-            f.write(f"最终正确率 (Accuracy): {average_accuracy:.4f}\n")
+            f.write("Accuracy 指标: 本任务不返回该指标。\n")
         f.write(f"开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"总耗时: {duration}\n\n")
@@ -149,11 +163,14 @@ async def run_ask_evaluation(config):
                 f.write("\n")
 
     print(f"\n评估完成，汇总结果已保存到: {result_file}")
-    if n_attempts > 1:
-        print(f"平均准确率 (尝试次数为{n_attempts}): {average_accuracy:.4f}")
-        print(f"各次尝试准确率: {attempt_accuracy_str}")
+    if accuracy_available:
+        if n_attempts > 1:
+            print(f"平均准确率 (尝试次数为{n_attempts}): {average_accuracy:.4f}")
+            print(f"各次尝试准确率: {attempt_accuracy_str}")
+        else:
+            print(f"最终正确率 (Accuracy): {average_accuracy:.4f}")
     else:
-        print(f"最终正确率 (Accuracy): {average_accuracy:.4f}")
+        print("Accuracy 指标: 本任务不返回该指标。")
     print(f"总耗时: {duration}")
     print("-" * 30)
     for idx, log in enumerate(attempt_logs):

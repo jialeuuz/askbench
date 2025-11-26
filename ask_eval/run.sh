@@ -23,7 +23,7 @@ MODEL_NAME="azure-gpt-4_1"
 # ask_lone_math500de,ask_lone_medqade,ask_lone_gpqade,ask_lone_bbhde
 # math500,medqa,gpqa
 # math500_de,medqa_de
-# quest_bench
+# quest_bench,in3_interaction
 # ask_mind_math500de,ask_mind_medqade,ask_mind_gpqade,ask_mind_bbhde
 # ask_overconfidence_math500,ask_overconfidence_medqa
 # fata_math500,fata_medqa   # FATA 双阶段任务

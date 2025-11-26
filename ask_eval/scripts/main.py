@@ -33,7 +33,7 @@ async def run_tasks(base_config_path: str):
                 print('start ask_lone')
                 from scripts.run_ask_lone import run_ask_lone_evaluation
                 await run_ask_lone_evaluation(config)
-            elif "ask" in task or "quest_bench" in task or "fata" in task:
+            elif "ask" in task or "quest_bench" in task or "fata" in task or "in3_interaction" in task:
                 print('start ask')
                 from scripts.run_ask import run_ask_evaluation
                 save_dir = await run_ask_evaluation(config)

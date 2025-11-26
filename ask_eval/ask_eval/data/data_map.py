@@ -20,6 +20,7 @@ LOADER_MAP = {
     "ask_mind_bbhde":JsonlLoader,
     "ask_mind_gpqade":JsonlLoader,
     "quest_bench":JsonlLoader,
+    "in3_interaction":JsonlLoader,
     "bbh":JsonlLoader,
     "fata_math500":JsonlLoader,
     "fata_medqa":JsonlLoader,

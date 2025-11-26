@@ -6,8 +6,7 @@ from ask_eval.evaluators.degrade.medqa_de import MedQADeEvaluator
 from ask_eval.evaluators.degrade.math500_de import Math500DeEvaluator
 from ask_eval.evaluators.ask import AskEvaluator
 from ask_eval.evaluators.ask_lone import AskLoneEvaluator
-
-
+from ask_eval.evaluators.in3_interaction import In3InteractionEvaluator
 
 # 评估器映射
 EVALUATOR_MAP = {
@@ -27,6 +26,7 @@ EVALUATOR_MAP = {
     "ask_mind_bbhde":AskEvaluator,
     "ask_mind_gpqade":AskEvaluator,
     "quest_bench":AskEvaluator,
+    "in3_interaction":In3InteractionEvaluator,
     "ask_lone":AskLoneEvaluator,
     "ask_lone_bbhde":AskLoneEvaluator,
     "ask_lone_gpqade":AskLoneEvaluator,

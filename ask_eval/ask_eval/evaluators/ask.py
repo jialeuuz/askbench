@@ -331,7 +331,9 @@ class AskEvaluator(BaseEvaluator):
                 "scenario": scenario_fields,
                 "metrics": {
                     "redundant_question_events": 0,
-                    "premature_final_answer": False
+                    "premature_final_answer": False,
+                    # 是否在对话过程中至少提出过一次澄清问题
+                    "asked_any_question": False
                 },
                 "last_known_missing_points": list(required_points),
                 "last_all_required_points_resolved": False if required_points else True,
@@ -502,8 +504,11 @@ class AskEvaluator(BaseEvaluator):
                 sample_state["last_known_missing_points"] = missing_points
                 sample_state["last_all_required_points_resolved"] = all_points_resolved
 
-                if not decision.get("is_final_answer") and all_points_resolved:
-                    sample_state["metrics"]["redundant_question_events"] += 1
+                # 标记该样本是否曾提出过澄清问题
+                if not decision.get("is_final_answer"):
+                    sample_state["metrics"]["asked_any_question"] = True
+                    if all_points_resolved:
+                        sample_state["metrics"]["redundant_question_events"] += 1
 
                 if decision.get("is_final_answer"):
                     sample_state["is_finished"] = True
@@ -628,9 +633,28 @@ class AskEvaluator(BaseEvaluator):
         compliance_rate = (compliant_final_answers / total_final_answers) if total_final_answers else 0.0
         premature_answer_rate = (non_compliant_final_answers / total_final_answers) if total_final_answers else 0.0
 
-        redundant_question_events = sum(res.get("behavior_metrics", {}).get("redundant_question_events", 0) for res in valid_results)
-        redundant_question_samples = sum(1 for res in valid_results if res.get("behavior_metrics", {}).get("redundant_question_events", 0) > 0)
-        redundant_question_sample_rate = (redundant_question_samples / denominator) if denominator else 0.0
+        redundant_question_events = sum(
+            res.get("behavior_metrics", {}).get("redundant_question_events", 0)
+            for res in valid_results
+        )
+        redundant_question_samples = sum(
+            1
+            for res in valid_results
+            if res.get("behavior_metrics", {}).get("redundant_question_events", 0) > 0
+        )
+        redundant_question_sample_rate = (
+            (redundant_question_samples / denominator) if denominator else 0.0
+        )
+
+        # 在所有有效样本中，有多少样本至少提出过一次澄清问题
+        ask_triggered_samples = sum(
+            1
+            for res in valid_results
+            if res.get("behavior_metrics", {}).get("asked_any_question")
+        )
+        ask_triggered_sample_rate = (
+            ask_triggered_samples / denominator if denominator else 0.0
+        )
 
         reason_counts = Counter(res.get("reason") for res in final_results)
         turn_distribution_log = "Evaluation Outcome Distribution:\n"
@@ -655,18 +679,22 @@ class AskEvaluator(BaseEvaluator):
                 if denominator
                 else "0 / 0"
             )
+            ask_display = f"{ask_triggered_samples} / {denominator}" if denominator else "0 / 0"
             total_score = compute_askmind_total_score(
                 accuracy=accuracy,
                 prem_rate=premature_answer_rate,
                 unq_rate=redundant_question_sample_rate
             )
             log_lines.extend([
+                f"- Samples where at least one clarifying question was asked (among samples with required_points): {ask_display} (ask_rate={ask_triggered_sample_rate:.4f}, {ask_triggered_sample_rate * 100:.1f}%)",
                 f"- Final answers after covering all required points: {coverage_display} (cov_rate={compliance_rate * 100:.1f}%)",
                 f"- 综合得分 (score): {total_score:.4f} (acc={accuracy:.4f}, cov_rate={compliance_rate:.4f}, unq_rate={redundant_question_sample_rate:.4f})",
                 f"- Samples with unnecessary clarifying questions after all info was available: {redundant_display} (unq_rate={redundant_question_sample_rate * 100:.1f}%, {redundant_question_events} total events)"
             ])
         else:
+            ask_display = f"{ask_triggered_samples} / {denominator}" if denominator else "0 / 0"
             log_lines.extend([
+                f"- Samples where at least one clarifying question was asked (among samples with required_points): {ask_display} (ask_rate={ask_triggered_sample_rate:.4f}, {ask_triggered_sample_rate * 100:.1f}%)",
                 f"- Final answers after covering all required points: {compliant_final_answers} / {total_final_answers} ({compliance_rate * 100:.1f}%)",
                 f"- Premature final answers (missing required info): {non_compliant_final_answers} ({premature_answer_rate * 100:.1f}% of final answers)",
                 f"- Samples with unnecessary clarifying questions after all info was available: {redundant_question_samples} ({redundant_question_sample_rate * 100:.1f}% of valid samples, {redundant_question_events} total events)"

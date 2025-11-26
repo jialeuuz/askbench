@@ -77,6 +77,7 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
 - **数学与常规 QA**：包含 `problem` / `ori_question` 与 `expected_answer`。
 - **降质任务（*_de）**：使用 `degraded_question` 和 `expected_answer`。
 - **AskBench 系列**：样本包含 `degraded_question`、`ori_question`、`expected_answer`、`degraded_info`，以及 `required_points`（列出必须补齐的关键信息，现已覆盖 ask_mind* 与 quest_bench），用于多轮对话模拟。
+- **in3_interaction**：原始数据只提供 `task`、`vague`、`missing_details` 以及示例交互。评测器会将 `task` 重命名为 `ori_question`/`degraded_question`，把 `missing_details` 中每个元素的 `description` 汇总成 `required_points`，并把整段 `missing_details` 转写成 `degraded_info`。由于没有 `expected_answer`，该基准只衡量澄清问答行为（ask-rate/覆盖率/冗余提问等），不计算 Accuracy。
 - **AskLone 系列**：只使用 `ori_question` 与 `expected_answer`，用于单轮作答与“不会做就承认”评估。
 
 如需引入新任务，可在 `LOADER_MAP` 注册自定义加载器，或沿用 JSONL 格式。
@@ -150,10 +151,12 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 - **指标拆解**：`askbench_detailed_results.json` 会记录每轮覆盖了哪些 `required_points`、是否出现“信息已经齐全却继续提问”的事件，以及最终答案是否在信息缺失的情况下给出。
 - **结果统计**：`results.txt` 与 CLI 输出会同时给出：
   - 只统计有效样本的准确率；
+  - “必要提问率” (ask_rate)——在所有有效样本中，被测模型是否至少发起过一次澄清问题的样本占比（例如 500 条中有 300 条曾经发问，则 ask_rate = 300/500）；
   - “合规率” (cov_rate)——在给出最终答案前是否补齐全部 `required_points`；
   - “冗余追问信率” (unq_rate)——信息已经齐全仍继续提问的样本数与事件数；
   - “综合得分” (score)——适用于 `ask_mind_math500de/medqade/gpqade/bbhde`、`ask_overconfidence(+_math500/+_medqa)` 以及 `quest_bench`，按照 `0.5 * acc + 0.3 * cov_rate + 0.2 * (1 - unq_rate)` 汇总，`unq_rate` 越低越好；
   - 全量原因分布（含被跳过样本），方便定位问题。
+- **in3_interaction 特例**：沿用同一套 ask 指标，但由于缺少 `expected_answer`，最终日志只会给出 “Vague Ask Rate / Clear-task Direct Rate / cov_rate / unq_rate”等行为指标，不再输出 Accuracy 或综合得分，并在 `results.txt` 首行额外记录 `Vague Ask Rate` 以便 `final_result.txt` 汇总。
 
 ## FATA 双阶段评测
 
@@ -235,5 +238,6 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 | `fata_math500` | `data/fata/fata_math500` | `AskEvaluator` | 双轮（澄清+最终回答） | 官方 prompt 先引导模型提问一次，Judge 判断是否需要补充信息并模拟用户回复，再由同一 Judge 判定最终答案是否正确。 |
 | `fata_medqa` | `data/fata/fata_medqa` | `AskEvaluator` | 双轮（澄清+最终回答） | 流程与 `fata_math500` 相同，只是题源换为 MedQA。 |
 | `quest_bench` | `data/ask_bench/quest_bench` | `AskEvaluator` | 多轮裁判 | QuestBench 任务，沿用 AskEvaluator + `required_points` 清单，Judge 会按 ask_mind 体系判定合规性。 |
+| `in3_interaction` | `data/ask_bench/in3_interaction` | `In3InteractionEvaluator` | 多轮裁判 | IN3 Interaction 新基准：`task` 视为原始问题，`missing_details` 会被拆成 `required_points`，裁判只衡量澄清问答合规性，不再计算 Accuracy。 |
 
 > 注：所有 `ask_*`、`quest_bench` 以及 `math500` / `medqa` / `gpqa` 均依赖 `[evaluatorconfig]` 定义的裁判模型；其余传统任务则仍使用正则或数值对比。新增任务时可对照该表快速定位所需的数据结构与评估器。

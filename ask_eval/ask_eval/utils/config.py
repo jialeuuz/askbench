@@ -216,6 +216,7 @@ def write_final_result_file(save_dir: str, task: str, task_name: str, final_file
         ("Avg Accuracy", r'Avg Accuracy.*?:\s*(\d+(?:\.\d+)?)', "AverageAccuracyEn"),
         ("最终正确率", r'最终正确率.*?:\s*(\d+(?:\.\d+)?)', "FinalAccuracy"),
         ("AskBench Final Accuracy", r'AskBench Final Accuracy:\s*(\d+(?:\.\d+)?)', "AskBenchFinalAccuracy"),
+        ("Vague Ask Rate", r'Vague Ask Rate:\s*(\d+(?:\.\d+)?)', "VagueAskRate"),
         ("综合得分", r'综合得分.*?:\s*(\d+(?:\.\d+)?)', "TotalScore"),
         ("准确率", r'(?<!尝试)准确率:\s*(\d+(?:\.\d+)?)', "LegacyAccuracy"),
     ]
