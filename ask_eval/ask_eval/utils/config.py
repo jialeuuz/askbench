@@ -218,6 +218,7 @@ def write_final_result_file(save_dir: str, task: str, task_name: str, final_file
         ("AskBench Final Accuracy", r'AskBench Final Accuracy:\s*(\d+(?:\.\d+)?)', "AskBenchFinalAccuracy"),
         ("Vague Ask Rate", r'Vague Ask Rate:\s*(\d+(?:\.\d+)?)', "VagueAskRate"),
         ("综合得分", r'综合得分.*?:\s*(\d+(?:\.\d+)?)', "TotalScore"),
+        ("HealthBench Score", r'HealthBench Score.*?:\s*(\d+(?:\.\d+)?)', "HealthBenchScore"),
         ("准确率", r'(?<!尝试)准确率:\s*(\d+(?:\.\d+)?)', "LegacyAccuracy"),
     ]
     time_pattern = r"总耗时:\s*(\d+):(\d{2}):(\d{2}\.\d+)"

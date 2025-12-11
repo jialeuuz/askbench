@@ -69,6 +69,7 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
 - **运行脚本 (`run.sh`)**
   - 支持以命令行参数覆盖配置（模型 URL、任务列表、温度、并发等）。
   - 在运行前备份 `base.ini`，结束后恢复，避免污染默认配置。
+  - 新增 `--guidance-mode` / 环境变量 `GUIDANCE_MODE` 控制首轮引导策略，可选 `none`（默认）、`weak`、`strong`、`fata`；其中 `fata` 会在首轮用户消息中追加官方 FATA 引导文案，便于按需对比 baseline。
 
 ## 数据加载层
 
@@ -79,6 +80,8 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
 - **AskBench 系列**：样本包含 `degraded_question`、`ori_question`、`expected_answer`、`degraded_info`，以及 `required_points`（列出必须补齐的关键信息，现已覆盖 ask_mind* 与 quest_bench），用于多轮对话模拟。
 - **in3_interaction**：原始数据只提供 `task`、`vague`、`missing_details` 以及示例交互。评测器会将 `task` 重命名为 `ori_question`/`degraded_question`，把 `missing_details` 中每个元素的 `description` 汇总成 `required_points`，并把整段 `missing_details` 转写成 `degraded_info`。由于没有 `expected_answer`，该基准只衡量澄清问答行为（ask-rate/覆盖率/冗余提问等），不计算 Accuracy。
 - **AskLone 系列**：只使用 `ori_question` 与 `expected_answer`，用于单轮作答与“不会做就承认”评估。
+- **HealthBench**：`prompt` 内直接提供多轮对话消息列表（`role`/`content`），`rubrics` 为带 points 的评分项。被测模型在现有对话上生成回复，再将完整对话与单条 rubric 传给裁判模型（模板见 `data/common/healthbench/grader_prompt.py`）；命中 rubric 得到对应分值（含负分），最后用全部正分和做归一得到 0-1 区间得分（最低截断为 0）。
+- **ask_mind 汇总集**：`data/ask_bench/ask_mind/test.jsonl` 由 `ask_mind_math500de/medqade/gpqade/bbhde` 各采样 100 题（总计 400 题）拼接而成，可通过 `python data/ask_bench/ask_mind/build_combined_eval.py` 复现。任务名 `ask_mind` 沿用 AskBench 逻辑与综合得分计算。
 
 如需引入新任务，可在 `LOADER_MAP` 注册自定义加载器，或沿用 JSONL 格式。
 
@@ -225,7 +228,7 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 | `ask_overconfidence` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | AskBench 子任务，存在裁判模型；被测模型需通过提问补全信息，裁判负责判定终止与正误。 |
 | `ask_overconfidence_math500` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | Math500 子集的 overconfidence 版本，模型需识别并修正误导点后再作答。 |
 | `ask_overconfidence_medqa` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | MedQA 子集的 overconfidence 版本，字段与 ask_overconfidence_math500 相同。 |
-| `ask_mind` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench 主任务，逻辑同上，题干为 `degraded_question`，真题存放于 `ori_question`。 |
+| `ask_mind` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench 主任务，逻辑同上，题干为 `degraded_question`，真题存放于 `ori_question`，默认数据为四个 ask_mind 子集各 100 题的 400 条混合集。 |
 | `ask_lone` | `data/ask_bench/ask_lone` | `AskLoneEvaluator` | 单轮 + 裁判 | 先估 16 次通过率，再根据最终作答/认输计算得分。 |
 | `ask_lone_bbhde` | `data/ask_bench/ask_lone` | `AskLoneEvaluator` | 单轮 + 裁判 | AskLone 逻辑 + BBH 原题（`ori_question`），题目来源 `ask_mind_bbhde`。 |
 | `ask_lone_gpqade` | `data/ask_bench/ask_lone` | `AskLoneEvaluator` | 单轮 + 裁判 | AskLone 逻辑 + GPQA 原题（`ori_question`），题目来源 `ask_mind_gpqade`。 |

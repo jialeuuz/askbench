@@ -24,9 +24,10 @@ MODEL_NAME="azure-gpt-4_1"
 # math500,medqa,gpqa
 # math500_de,medqa_de
 # quest_bench,in3_interaction
+# ask_mind (四个 ask_mind 子集各采样100条，共400)
 # ask_mind_math500de,ask_mind_medqade,ask_mind_gpqade,ask_mind_bbhde
 # ask_overconfidence_math500,ask_overconfidence_medqa
-# fata_math500,fata_medqa   # FATA 双阶段任务
+# healthbench
 TASKS="math500,medqa"
 # [可选] 手动指定结果保存目录。若不指定，将根据模型和任务自动生成。
 SAVE_DIR="results/test-gpt-4_1"
@@ -46,6 +47,8 @@ TEMPERATURE="0.7"
 GEN_MAX_CONCURRENT=100
 # [可选] [evaluatorconfig] max_concurrent
 EVAL_MAX_CONCURRENT=100
+# [可选] 首轮引导模式：none/weak/strong/fata
+GUIDANCE_MODE="none"
 
 
 # --- 解析命令行参数 ---
@@ -63,6 +66,7 @@ while [[ "$#" -gt 0 ]]; do
         --temp)             TEMPERATURE="$2"; shift ;;
         --gen-concurrent)   GEN_MAX_CONCURRENT="$2"; shift ;;
         --eval-concurrent)  EVAL_MAX_CONCURRENT="$2"; shift ;;
+        --guidance-mode)    GUIDANCE_MODE="$2"; shift ;;
         # 如果用户请求帮助，或者输入了未知参数，给一个简短的提示
         -h|--help|*)
             echo "错误或请求帮助。请直接阅读脚本开头的注释以了解用法。"
@@ -107,6 +111,7 @@ echo "将覆盖以下 base.ini 参数 (如果已提供):"
 [ ! -z "${TEMPERATURE}" ]         && echo "  [generateconfig] temperature:        ${TEMPERATURE}"
 [ ! -z "${GEN_MAX_CONCURRENT}" ]  && echo "  [generateconfig] max_concurrent: ${GEN_MAX_CONCURRENT}"
 [ ! -z "${EVAL_MAX_CONCURRENT}" ] && echo "  [evaluatorconfig] max_concurrent:${EVAL_MAX_CONCURRENT}"
+[ ! -z "${GUIDANCE_MODE}" ]       && echo "  [ask_evaluator] guidance_mode:       ${GUIDANCE_MODE}"
 echo "---"
 
 # --- 修改配置文件 ---
@@ -170,6 +175,7 @@ echo "---"
 
 # --- 运行主程序 ---
 echo "正在启动评估脚本: ${MAIN_PY_PATH}"
+export GUIDANCE_MODE
 python "${MAIN_PY_PATH}" --config "${BASE_CONFIG_PATH}"
 
 # --- 恢复配置文件 ---

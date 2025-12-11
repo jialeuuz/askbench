@@ -16,7 +16,7 @@ from ask_eval.evaluators.judge_utils import MAX_JUDGE_JSON_RETRIES, parse_json_t
 # 'none': 不添加任何引导
 # 'weak': 添加弱引导，暗示模型可以提问
 # 'strong': 添加强引导，明确要求模型必须先提问
-GUIDANCE_MODE = 'none'
+GUIDANCE_MODE = os.getenv("GUIDANCE_MODE", "none").lower()
 
 # Weak guidance: Politely suggests that the model can ask for more information.
 WEAK_GUIDANCE_PROMPT = "If you need more information to provide a better and more complete answer, please feel free to ask me any questions."
@@ -25,6 +25,17 @@ STRONG_GUIDANCE_PROMPT = "Important: My question is likely incomplete. You must 
 
 FATA_INITIAL_PROMPT_TEMPLATE = """
 User request: <degraded_question>.
+To better assist me, before offering advice, please adopt the perspective of an expert in the relevant field
+and ask questions to help you identify any missing key information.
+Please ensure the problem is structured clearly and expressed concisely, with example guidance,
+just like how experts ask users questions during consultations to gather key information before providing solutions.
+
+After I provide additional information, please then offer a more personalized and practical solution as an expert in that field.
+If all key information has already been provided, please directly give the solution.
+Note: Maintain a positive attitude, and do not request phone numbers, ID numbers, or other sensitive data.
+""".strip()
+
+FATA_GUIDANCE_PROMPT = """
 To better assist me, before offering advice, please adopt the perspective of an expert in the relevant field
 and ask questions to help you identify any missing key information.
 Please ensure the problem is structured clearly and expressed concisely, with example guidance,
@@ -189,6 +200,7 @@ def prepare_scenario_fields(sample_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 AGGREGATED_SCORE_TASKS = {
+    "ask_mind",
     "ask_mind_math500de",
     "ask_mind_medqade",
     "ask_mind_gpqade",
@@ -411,6 +423,8 @@ class AskEvaluator(BaseEvaluator):
                         prompt_to_add = WEAK_GUIDANCE_PROMPT
                     elif GUIDANCE_MODE == 'strong':
                         prompt_to_add = STRONG_GUIDANCE_PROMPT
+                    elif GUIDANCE_MODE == 'fata':
+                        prompt_to_add = FATA_GUIDANCE_PROMPT
 
                     if prompt_to_add:
                         # 同样使用 .copy() 来避免修改原始历史记录

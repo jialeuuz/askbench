@@ -77,6 +77,7 @@ async def run_evaluation(config):
         judge_model = create_model(judge_config, judge_config)
 
     evaluator = create_evaluator(evalset_name, model, generate_config, judge_model=judge_model, judge_config=judge_config)
+    metric_label = getattr(evaluator, "metric_label", "准确率")
     
     # 创建数据加载器并加载数据
     data_dir = os.path.join(path_config["data_dir"], evalset_name)
@@ -134,8 +135,8 @@ async def run_evaluation(config):
         if attempt == 0:  # 只需要保存一次prompts
             all_prompts = prompts
         
-        print(f"第 {attempt+1} 次推理准确率: {acc:.4f}")
-        final_log += f"第 {attempt+1} 次推理准确率: {acc:.4f}\n{log}"
+        print(f"第 {attempt+1} 次推理{metric_label}: {acc:.4f}")
+        final_log += f"第 {attempt+1} 次推理{metric_label}: {acc:.4f}\n{log}"
     
     # 计算最终指标
     # 重组数据为每个问题的所有尝试结果
@@ -190,9 +191,14 @@ async def run_evaluation(config):
     
     # 生成最终日志
     if n_attempts > 1:
-        final_log += f"Pass@1 (平均准确率): {average_acc:.4f}\n"
+        pass_label = getattr(
+            evaluator,
+            "multi_attempt_metric_label",
+            f"Pass@1 (尝试次数为{n_attempts}，平均准确率)"
+        )
+        final_log += f"{pass_label}: {average_acc:.4f}\n"
     else:
-        final_log += f"准确率: {average_acc:.4f}\n"
+        final_log += f"{metric_label}: {average_acc:.4f}\n"
     
     # 统计所有尝试的截断情况
     all_truncated = [flag for attempt_flags in all_truncated_flags for flag in attempt_flags]
@@ -216,9 +222,14 @@ async def run_evaluation(config):
         f.write(f"任务名称: {model_config['task_name']}\n")
         
         if n_attempts > 1:
-            f.write(f"Pass@1 (尝试次数为{n_attempts}，平均准确率): {average_acc:.4f}\n")
+            pass_label = getattr(
+                evaluator,
+                "multi_attempt_metric_label",
+                f"Pass@1 (尝试次数为{n_attempts}，平均准确率)"
+            )
+            f.write(f"{pass_label}: {average_acc:.4f}\n")
         else:
-            f.write(f"准确率: {average_acc:.4f}\n")
+            f.write(f"{metric_label}: {average_acc:.4f}\n")
             
         f.write(f"开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -228,9 +239,14 @@ async def run_evaluation(config):
     print(f"评估完成，结果已保存到: {result_file}")
     
     if n_attempts > 1:
-        print(f"Pass@1 (尝试次数为{n_attempts}，平均准确率): {average_acc:.4f}")
+        pass_label = getattr(
+            evaluator,
+            "multi_attempt_metric_label",
+            f"Pass@1 (尝试次数为{n_attempts}，平均准确率)"
+        )
+        print(f"{pass_label}: {average_acc:.4f}")
     else:
-        print(f"准确率: {average_acc:.4f}")
+        print(f"{metric_label}: {average_acc:.4f}")
         
     print(f"总耗时: {duration}")
 

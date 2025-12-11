@@ -24,4 +24,5 @@ LOADER_MAP = {
     "bbh":JsonlLoader,
     "fata_math500":JsonlLoader,
     "fata_medqa":JsonlLoader,
+    "healthbench":JsonlLoader,
 }

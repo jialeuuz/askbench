@@ -7,6 +7,7 @@ from ask_eval.evaluators.degrade.math500_de import Math500DeEvaluator
 from ask_eval.evaluators.ask import AskEvaluator
 from ask_eval.evaluators.ask_lone import AskLoneEvaluator
 from ask_eval.evaluators.in3_interaction import In3InteractionEvaluator
+from ask_eval.evaluators.healthbench import HealthBenchEvaluator
 
 # 评估器映射
 EVALUATOR_MAP = {
@@ -34,4 +35,5 @@ EVALUATOR_MAP = {
     "ask_lone_medqade":AskLoneEvaluator,
     "fata_math500":AskEvaluator,
     "fata_medqa":AskEvaluator,
+    "healthbench":HealthBenchEvaluator,
 }
