@@ -1,9 +1,6 @@
 from ask_eval.evaluators.base_evaluator import BaseEvaluator
 from ask_eval.evaluators.judge_mixin import JudgeEvaluatorMixin
 from typing import Dict, List, Tuple
-import re
-
-choices = ["A", "B", "C", "D"]
 MEDQA_JUDGE_PROMPT = """
 You are judging whether a multiple-choice medical answer is correct.
 The assistant must pick the same option as the ground-truth answer.
@@ -18,9 +15,6 @@ Ground-truth answer:
 
 Assistant response:
 {model_response}
-
-Extracted option (if any):
-{extracted_answer}
 
 Reply with:
 Reasoning: <short explanation>
@@ -47,57 +41,10 @@ class MedQAEvaluator(JudgeEvaluatorMixin, BaseEvaluator):
         return prompt
         
     def extract_answer(self, response: str) -> str:
-        """从响应中提取答案"""
+        """直接返回模型原文，判分交给裁判模型。"""
         if not response or response == "Error":
             return "Error"
-        response = response.strip()
-        
-        # 1. 直接匹配选项
-        if len(response) == 1 and response in choices:
-            return response
-            
-        # 2. 匹配 "The answer is X" 等多种模式
-        # 增加了对 "The answer is A." 这种格式的精确匹配
-        patterns = [
-            # ==== 英文精确匹配 ====
-            (r'[Tt]he answer is\s*([ABCD])(?:[\.\)\],\s]|$)', 1),
-            (r'[Tt]he correct answer is\s*([ABCD])(?:[\.\)\],\s]|$)', 1),
-            (r'\*\*Answer:?\*\*\s*([ABCD])(?:[\.\)\],\s]|$)', 1),
-            (r'Answer:?\s*([ABCD])(?:[\.\)\],\s]|$)', 1),
-            (r'\\boxed\{([ABCD])\}', 1),
-
-            # ==== 常见中英文直述结构 ====
-            (r'答案(选项)?(是|为)：?\s*([ABCD])(?:[\.\)\],\s]|$)', 3),
-            (r'答案(是|为)选项\s*([ABCD])(?:[\.\)\],\s]|$)', 2),
-            (r'故?选择?：?\s*([ABCD])(?:[\.\)\],\s]|$)', 1),
-            (r'([ABCD])\s?选?项(是|为)?正确', 1),
-            (r'正确的?选项(是|为)\s*([ABCD])(?:[\.\)\],\s]|$)', 2),
-            (r'答案(应该)?(是|为)([ABCD])(?:[\.\)\],\s]|$)', 3),
-            (r'选项\s*([ABCD])\s?(是|为)?正确', 1),
-            (r'选择答案\s*([ABCD])(?:[\.\)\],\s]|$)', 1),
-            (r'答案?[:：]?\s*([ABCD])(?:[\.\)\],\s]|$)', 1),
-            (r'([ABCD])(选?项)?是?符合题意', 1),
-            (r'答案选项：?\s*([ABCD])(?:[\.\)\],\s]|$)', 1),
-            (r'答案(选项)?为(.*?)([ABCD])(?:[\.\)\],\s]|$)', 3),
-            (r'([ABCD])(.*?)当选', 1),
-            (r'([ABCD])(.*?)正确', 1),
-
-            # ==== 特殊弱匹配（最后才用）====
-            (r'[^不]是：?\s*([ABCD])(?:[\.\)\],\s]|$)', 1),
-        ]
-        for pattern, idx in patterns:
-            m = re.search(pattern, response, re.M)
-            if m:
-                answer = m.group(idx).upper()
-                return answer
-        
-        # 3. 提取第一个出现的选项字母
-        letter_pattern = r'\b([ABCD])\b' # 使用\b确保是独立的字母
-        match = re.search(letter_pattern, response)
-        if match:
-            return match.group(0)
-            
-        return "Error"
+        return response.strip()
     async def infer_batch(self, test_data: List[Dict], train_data: List[Dict] = None) -> Tuple[List[str], List[str], List[str], List[str]]:
         """批量推理"""
         prompts = []

@@ -22,9 +22,6 @@ Ground-truth answer:
 Assistant response:
 {model_response}
 
-Extracted option (if any):
-{extracted_answer}
-
 Reply with:
 Reasoning: <short explanation>
 ```json
@@ -59,29 +56,10 @@ D) {data['choice4']}
         return prompt
     
     def extract_answer(self, response: str) -> str:
-        """从响应中提取答案的通用方法"""
+        """直接返回模型原文，不做任何正则提取。"""
         if not response or response == "Error":
             return "Error"
-        try:
-            response = response.replace("**", "")
-            patterns = [
-                r"(?i)Answer\s*:\s*([^\n]+)",
-                r"answer\s*[:：]\s*([0-9a-zA-Z/\-\+\.]+)",  # 英文标注
-                r'Answer: \((.)\)', 
-                r'answer: \((.)\)'
-            ]
-            for pattern in patterns:
-                match = re.search(pattern, response)
-                if match:
-                    raw_ans = match.group(1).strip()
-                    return raw_ans
-                    
-            print('未正则匹配出答案')
-            return 'Error'  # 未找到答案的情况
-            
-        except Exception as e:
-            print(f"提取答案时出错: {str(e)}")
-            return 'Error'
+        return response.strip()
 
     def reference_answer_for_record(self, sample: Dict) -> Dict[str, str]:
         letter = INDEX_TO_LETTER.get(sample.get("correct_index", -1), "")

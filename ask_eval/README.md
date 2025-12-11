@@ -117,7 +117,7 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
 
 ### 单轮 Judge 判分
 
-`math500`、`medqa` 与 `gpqa` 现统一通过裁判模型判分，以替代脆弱的正则比对：
+`math500`、`medqa`、`gpqa` 与 `bbh` 现统一通过裁判模型判分，以替代脆弱的正则比对：
 
 - 每个样本都会把题干、标准答案以及正则提取到的候选答案一起交给 Judge。
 - 裁判需先输出 `Reasoning: ...`，再给出一个 JSON 代码块，字段固定为 `{"reason": "...", "result": "correct" | "incorrect"}`，从而满足“先解释、后给结论”的需求。
@@ -225,6 +225,7 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 | `medqa` | `data/common/medqa` | `MedQAEvaluator` | 单轮 + 裁判 | 单轮多选题，由 Judge 读取题干与参考答案 JSON 判定正误。 |
 | `medqa_de` | `data/degrade/medqa_de` | `MedQADeEvaluator` | 单轮 | 降质版 MedQA，题干为 `degraded_question`，答案仍是选项匹配。 |
 | `gpqa` | `data/common/gpqa` | `GpqaEvaluator` | 单轮 + 裁判 | 通识问答集，同样将模型答案交由 Judge 判定。 |
+| `bbh` | `data/common/bbh` | `BBHEvaluator` | 单轮 + 裁判 | BBH 全量题集，Judge 依据标准答案判定，兼容选项题与开放式答案。 |
 | `ask_overconfidence` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | AskBench 子任务，存在裁判模型；被测模型需通过提问补全信息，裁判负责判定终止与正误。 |
 | `ask_overconfidence_math500` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | Math500 子集的 overconfidence 版本，模型需识别并修正误导点后再作答。 |
 | `ask_overconfidence_medqa` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | MedQA 子集的 overconfidence 版本，字段与 ask_overconfidence_math500 相同。 |
@@ -243,4 +244,4 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 | `quest_bench` | `data/ask_bench/quest_bench` | `AskEvaluator` | 多轮裁判 | QuestBench 任务，沿用 AskEvaluator + `required_points` 清单，Judge 会按 ask_mind 体系判定合规性。 |
 | `in3_interaction` | `data/ask_bench/in3_interaction` | `In3InteractionEvaluator` | 多轮裁判 | IN3 Interaction 新基准：`task` 视为原始问题，`missing_details` 会被拆成 `required_points`，裁判只衡量澄清问答合规性，不再计算 Accuracy。 |
 
-> 注：所有 `ask_*`、`quest_bench` 以及 `math500` / `medqa` / `gpqa` 均依赖 `[evaluatorconfig]` 定义的裁判模型；其余传统任务则仍使用正则或数值对比。新增任务时可对照该表快速定位所需的数据结构与评估器。
+> 注：所有 `ask_*`、`quest_bench` 以及 `math500` / `medqa` / `gpqa` / `bbh` 均依赖 `[evaluatorconfig]` 定义的裁判模型；其余传统任务则仍使用正则或数值对比。新增任务时可对照该表快速定位所需的数据结构与评估器。

@@ -22,6 +22,7 @@ LOADER_MAP = {
     "quest_bench":JsonlLoader,
     "in3_interaction":JsonlLoader,
     "bbh":JsonlLoader,
+    "gpqa":JsonlLoader,
     "fata_math500":JsonlLoader,
     "fata_medqa":JsonlLoader,
     "healthbench":JsonlLoader,
