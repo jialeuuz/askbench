@@ -8,152 +8,6 @@ from post_api import CustomAPI
 # ---------------------------------------------------------------------------
 # 辅助函数
 # ---------------------------------------------------------------------------
-_MC_ANSWER_LEAK_PATTERNS = [
-    r"(?i)\bthe answer is\b",
-    r"(?i)\banswer is\b",
-    r"(?i)\bcorrect answer\b",
-    r"答案是",
-    r"正确答案",
-    r"(?i)\b(option|choice)\s*[A-E]\b",
-    r"(?i)^\s*[A-E]\s*[\.\)]",
-    r"(?i)\b[A-E]\s*[\.\)]",
-    r"(?i)\bselect\s*[A-E]\b",
-    r"(?i)\bchoose\s*[A-E]\b",
-    r"(?i)\bpick\s*[A-E]\b",
-    r"选项[：:]?\s*[A-E]",
-    r"选择[：:]?\s*[A-E]",
-    r"选[：:]?\s*[A-E]",
-]
-
-
-def _looks_like_question(text: str) -> bool:
-    if not text:
-        return False
-    stripped = str(text).strip()
-    if "?" in stripped or "？" in stripped:
-        return True
-    lowered = stripped.lower()
-    question_starters = (
-        "can you",
-        "could you",
-        "would you",
-        "do you",
-        "did you",
-        "are you",
-        "is it",
-        "what",
-        "when",
-        "where",
-        "why",
-        "how",
-    )
-    return lowered.startswith(question_starters)
-
-
-def _contains_cjk(text: str) -> bool:
-    return bool(re.search(r"[\u4e00-\u9fff]", str(text or "")))
-
-
-def _default_user_nudge(text_for_language: str) -> str:
-    if _contains_cjk(text_for_language):
-        return "我不太确定该怎么回答你的上一段话。你能直接给出清晰的最终结论/建议吗？"
-    return "I'm not sure how to respond to your last message. Could you provide a clear final answer/explanation?"
-
-
-def _expected_answer_looks_like_multiple_choice(expected_answer: str) -> bool:
-    ans = (expected_answer or "").strip()
-    if not ans:
-        return False
-    return bool(re.search(r"(?i)^\s*[A-E]\s*[\.\)]", ans)) or bool(
-        re.search(r"(?i)\b(option|choice)\s*[A-E]\b", ans)
-    )
-
-
-def _sanitize_simulated_user_response(
-    response_text: str,
-    *,
-    expected_answer: str = "",
-    text_for_language: str = "",
-    scenario_type: str = "",
-) -> str:
-    candidate = (response_text or "").strip()
-    if not candidate:
-        return _default_user_nudge(text_for_language)
-
-    for pattern in _MC_ANSWER_LEAK_PATTERNS:
-        if re.search(pattern, candidate):
-            return _default_user_nudge(text_for_language)
-
-    expected = (expected_answer or "").strip()
-    if (
-        _expected_answer_looks_like_multiple_choice(expected)
-        and expected
-        and expected.lower() in candidate.lower()
-        and len(expected) >= 4
-    ):
-        return _default_user_nudge(text_for_language)
-
-    if (scenario_type or "").strip().lower() == "overconfidence" and _expected_answer_looks_like_multiple_choice(expected):
-        match = re.match(r"(?i)^\s*[A-E]\s*[\.\)]\s*(.+?)\s*$", expected)
-        if match:
-            choice_text = match.group(1).strip()
-            if choice_text and len(choice_text) >= 4 and choice_text.lower() in candidate.lower():
-                return _default_user_nudge(text_for_language)
-
-    return candidate
-
-
-def _format_checklist_points(points: Any) -> str:
-    if not points:
-        return "- None provided (the user may answer once confident)."
-    if not isinstance(points, list):
-        return f"1. {str(points)}"
-    formatted = []
-    for idx, point in enumerate(points, start=1):
-        formatted.append(f"{idx}. {str(point)}")
-    return "\n".join(formatted)
-
-
-def _build_user_internal_knowledge(
-    item: Dict[str, Any],
-    *,
-    scenario_type: str,
-    info_key: str,
-    checklist_key: str,
-    checklist_header: str,
-) -> str:
-    user_knowledge = {
-        "my_real_question": item.get("ori_question", ""),
-        "scenario_context": item.get(info_key, ""),
-        "scenario_type": scenario_type,
-        "checklist_header": checklist_header,
-        "checklist_points": list(item.get(checklist_key, []) or []),
-    }
-    return json.dumps(user_knowledge, ensure_ascii=False, indent=2)
-
-
-def _question_leaks_expected_answer(question_text: str, expected_answer: str, ori_question: str) -> bool:
-    question_text = str(question_text or "")
-    expected_answer = str(expected_answer or "").strip()
-    if not question_text or not expected_answer:
-        return False
-    # If the expected answer already appears in the original question text, don't treat it as leakage.
-    if expected_answer and expected_answer in str(ori_question or ""):
-        return False
-
-    lowered = question_text.lower()
-    if "final answer" in lowered:
-        return True
-    if "standard answer" in lowered or "expected_answer" in lowered:
-        return True
-
-    # Avoid false positives like matching "23" inside "123".
-    if expected_answer.isdigit():
-        pattern = r"(?<!\d)" + re.escape(expected_answer) + r"(?!\d)"
-        return bool(re.search(pattern, question_text))
-    return expected_answer in question_text
-
-
 def _safe_format(template: str, variables: Dict[str, Any]) -> str:
     """仅替换已知占位符 {key}，保留其他花括号为字面量。
     这样可避免模板中的 JSON 示例触发 str.format 的 KeyError。
@@ -171,10 +25,6 @@ def _clean_for_failure(item: Dict[str, Any]) -> Dict[str, Any]:
     clean_item.pop('overconfidence_info', None)
     clean_item.pop('misleading_points', None)
     clean_item.pop('conversation_history', None)
-    clean_item.pop('assistant_question', None)
-    clean_item.pop('checklist_header', None)
-    clean_item.pop('checklist_points_text', None)
-    clean_item.pop('user_internal_knowledge', None)
     clean_item.pop('temp_answer', None)
     clean_item.pop('generated_answer', None)
     clean_item.pop('solution_section', None)
@@ -295,12 +145,11 @@ async def _run_batch_step_with_retry(
                 format_args = {key: items[index][key] for key in prompt_format_keys}
                 if 'conversation_history' in format_args:
                     format_args['conversation_history'] = json.dumps(format_args['conversation_history'], ensure_ascii=False, indent=2)
-                for maybe_list_key in ("required_points", "misleading_points"):
-                    if maybe_list_key in format_args and not isinstance(format_args[maybe_list_key], str):
-                        try:
-                            format_args[maybe_list_key] = json.dumps(format_args[maybe_list_key], ensure_ascii=False, indent=2)
-                        except Exception:
-                            format_args[maybe_list_key] = str(format_args[maybe_list_key])
+                if 'required_points' in format_args and not isinstance(format_args['required_points'], str):
+                    try:
+                        format_args['required_points'] = json.dumps(format_args['required_points'], ensure_ascii=False, indent=2)
+                    except Exception:
+                        format_args['required_points'] = str(format_args['required_points'])
                 # 使用安全替换，避免模板中的 JSON 花括号触发 KeyError
                 prompts_for_this_batch.append(_safe_format(prompt_template, format_args))
                 valid_indices_for_batch.append(index)
@@ -350,10 +199,6 @@ async def _run_batch_step_with_retry(
             clean_item.pop('degraded_question', None)
             clean_item.pop('degraded_info', None)
             clean_item.pop('conversation_history', None)
-            clean_item.pop('assistant_question', None)
-            clean_item.pop('checklist_header', None)
-            clean_item.pop('checklist_points_text', None)
-            clean_item.pop('user_internal_knowledge', None)
             clean_item.pop('temp_answer', None)
             clean_item.pop('generated_answer', None)
             clean_item.pop('solution_section', None) # 确保这个临时字段也被移除
@@ -423,31 +268,15 @@ async def generate_overconfidence_question_and_info(
         question_parser, api_params, max_retries
     )
     processed_successful_items = []
-    leaked_items: List[Dict[str, Any]] = []
     for item, parsed_json in successful_results:
         # 直接采用模型产出的独立问题文本（要求其保留原题 givens，但以自然口吻融入“自信但错误”的断言）
-        overconfidence_question = parsed_json.get('overconfidence_question', '')
-        if _question_leaks_expected_answer(overconfidence_question, item.get("expected_answer", ""), item.get("ori_question", "")):
-            leaked_items.append(
-                _attach_failure_meta(
-                    item,
-                    step=step_name,
-                    reason="leaked_expected_answer_in_overconfidence_question",
-                    attempts=0,
-                    response_preview=str(overconfidence_question)[:400],
-                )
-            )
-            continue
-
-        item['overconfidence_question'] = overconfidence_question
+        item['overconfidence_question'] = parsed_json.get('overconfidence_question', '')
         item['overconfidence_info'] = _coerce_to_text_block(parsed_json['overconfidence_info'])
         if isinstance(parsed_json, dict) and 'misleading_points' in parsed_json:
             item['misleading_points'] = parsed_json['misleading_points']
         else:
             item['misleading_points'] = []
         processed_successful_items.append(item)
-    if leaked_items:
-        failed_items = list(failed_items) + leaked_items
     return processed_successful_items, failed_items
 
 # ---------------------------------------------------------------------------
@@ -510,103 +339,17 @@ async def _run_multi_turn_strategy(
         for item, response in ask_results:
             item['conversation_history'].append({"role": "assistant", "content": response})
 
-        # --- 步骤 3: 批量模拟用户回复（严格对齐 ask_eval 的仿人约束）---
-        scenario_type = (
-            "overconfidence"
-            if str(checklist_key) == "misleading_points" or str(question_key).startswith("overconfidence")
-            else "missing_info"
+        # --- 步骤 3: 批量模拟用户回复 ---
+        reply_results, failed_reply = await _run_batch_step_with_retry(
+            api_client, items_to_process, "步骤 3: 模拟用户回复", templates[template_config['simulate_user']],
+            ['conversation_history', info_key],
+            lambda r: (r, None), {'max_tokens': 2048, 'temperature': 0.5}
         )
-        checklist_header = (
-            "Misleading claims that must be addressed before answering"
-            if scenario_type == "overconfidence"
-            else "Required clarification points (must be obtained before answering)"
-        )
-
-        to_simulate = []
-        simulated_fallback: Dict[int, str] = {}
-        for idx, item in enumerate(items_to_process):
-            assistant_question = ""
-            if item.get("conversation_history"):
-                assistant_question = str(item["conversation_history"][-1].get("content", ""))
-            item["assistant_question"] = assistant_question
-            item["checklist_header"] = checklist_header
-            item["checklist_points_text"] = _format_checklist_points(item.get(checklist_key))
-            item["user_internal_knowledge"] = _build_user_internal_knowledge(
-                item,
-                scenario_type=scenario_type,
-                info_key=info_key,
-                checklist_key=checklist_key,
-                checklist_header=checklist_header,
-            )
-
-            if not _looks_like_question(assistant_question):
-                simulated_fallback[idx] = _default_user_nudge(assistant_question)
-            else:
-                to_simulate.append(item)
-
-        reply_results = []
-        failed_reply = []
-        if to_simulate:
-            reply_results, failed_reply = await _run_batch_step_with_retry(
-                api_client,
-                to_simulate,
-                "步骤 3: 模拟用户回复",
-                templates[template_config["simulate_user"]],
-                [
-                    "conversation_history",
-                    "user_internal_knowledge",
-                    "checklist_header",
-                    "checklist_points_text",
-                    "assistant_question",
-                ],
-                lambda r: (r, None),
-                {"max_tokens": 2048, "temperature": 0.5},
-            )
-
-        # 将仿人回复回写到原 items_to_process 顺序；对 API 失败的条目，按“失败并丢弃”处理
-        failed_by_id: Dict[Any, Dict[str, Any]] = {}
-        for failed in failed_reply:
-            if isinstance(failed, dict) and "id" in failed:
-                failed_by_id[failed["id"]] = failed
-
-        reply_by_item_id = {id(item): raw for item, raw in reply_results}
-        succeeded_simulated_ids = set(reply_by_item_id.keys())
-
-        new_items_to_process: List[Dict[str, Any]] = []
-        for idx, item in enumerate(items_to_process):
-            # fallback: assistant 没有提出问题
-            if idx in simulated_fallback:
-                response = simulated_fallback[idx]
-                item["conversation_history"].append({"role": "user", "content": response})
-                new_items_to_process.append(item)
-                continue
-
-            # simulated: assistant 提问且本轮仿人成功返回
-            raw = reply_by_item_id.get(id(item))
-            if raw is not None:
-                response = _sanitize_simulated_user_response(
-                    raw,
-                    expected_answer=item.get("expected_answer", ""),
-                    text_for_language=item.get("assistant_question", ""),
-                    scenario_type=scenario_type,
-                )
-                item["conversation_history"].append({"role": "user", "content": response})
-                new_items_to_process.append(item)
-                continue
-
-            # simulated but failed: 丢弃并记录失败
-            if id(item) in succeeded_simulated_ids:
-                # 理论上不会进入；留作防御
-                pass
-            failure_record = failed_by_id.get(
-                item.get("id"),
-                _attach_failure_meta(item, step="步骤 3: 模拟用户回复", reason="api_or_unknown_failure", attempts=0),
-            )
-            total_discarded_items.append(failure_record)
-
-        items_to_process = new_items_to_process
-        if not items_to_process:
-            break
+        total_discarded_items.extend(failed_reply)
+        if not reply_results: break
+        items_to_process = [item for item, _ in reply_results]
+        for item, response in reply_results:
+            item['conversation_history'].append({"role": "user", "content": response})
 
         # --- 步骤 3.5: 覆盖自检 ---
         pre_next_round_items = []
@@ -748,10 +491,6 @@ async def _run_multi_turn_strategy(
         item.pop('temp_answer', None)
         item.pop('generated_answer', None)
         item.pop('solution_section', None)
-        item.pop('assistant_question', None)
-        item.pop('checklist_header', None)
-        item.pop('checklist_points_text', None)
-        item.pop('user_internal_knowledge', None)
 
     print(f"最终结果统计:")
     print(f"  - 初始数据量: {len(data)}")

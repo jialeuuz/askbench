@@ -38,17 +38,11 @@ template_generate_overconfidence_question_and_info = '''You are an expert in adv
 **You must strictly follow these rules:**
 
 1. **Preserve givens:** Copy every original number, constraint, and definition verbatim. Never invent or alter givens.
-2. **Inject confident mistakes (must be factually wrong):** Invent **at least two** wrong assertions about intermediate values, probability weights, theorem applications, causal relations, or derived steps. Each assertion must be *actually incorrect*, not merely a “bad justification that coincidentally reaches the right value”.
-3. **Describe mistakes first (single string, not a list):** Before composing the question, write `overconfidence_info` as一段完整的描述文字（可用换行或破折号组织），逐条说明“错误断言 → 正确事实 → 为什么该错误会误导推导”。`overconfidence_info` must be one single string, not an array.
+2. **Inject confident mistakes:** Invent **at least two** wrong assertions about intermediate values, theorem applications, causal relations, or derived steps. They must sound authoritative yet be incorrect interpretations of the givens.
+3. **Describe mistakes first:** Before composing the question, write `overconfidence_info` as一段完整的描述文字（可用换行或破折号组织），逐条说明“错误断言 → 正确事实 → 为什么该错误会误导推导”。
 4. **Checklist:** Build `misleading_points` as short labels summarizing each wrong assertion so downstream steps can track coverage.
-5. **Compose one question (must sound like a normal user):**
-   - Write in first person (“I think…/So it should…”), concise and conversational (avoid academic tone).
-   - Avoid phrases like “rigorously established”, “well-known result”, “as we know”, or named theories (e.g., “stochastic dominance theory”).
-   - Do NOT dump a full solution. Just embed the wrong assertions and then ask the question.
-   - Keep the question reasonably short (preferably ≤ 6 sentences).
-   - You may paste the original question verbatim and add 2–4 short overconfident sentences before/after it.
-6. **CRITICAL: never leak the standard answer:** The `overconfidence_question` must NOT contain the exact standard answer `{expected_answer}` (nor “Final Answer: …”, nor a revealed computed result). It may contain the original instruction text like “Answer:” if it appears in the original question, but must not provide the answer.
-7. **Output format (STRICT):** Return raw JSON only (no prose/markdown) with keys in this exact order:
+5. **Compose one question:** After listing the info and checklist, craft exactly one natural, overconfident question that restates the original problem, smoothly embeds the wrong assertions, and still asks for the final answer. No meta commentary.
+6. **Output format (STRICT):** Return raw JSON only (no prose/markdown) with keys in this exact order:
    {
      "overconfidence_info": "<a detailed description of each wrong assertion, the correct fact/value, and why it misleads the solution (single string)>",
      "misleading_points": ["<short label 1>", "<short label 2>", "..."],
@@ -127,40 +121,21 @@ This is the final chance to fact-check the overconfident user.
 '''
 
 template_overconfidence_simulate_user_reply = '''
-你正在模拟“用户”（提问者）。在该场景中，你最初的提问语气过于自信，且包含一些错误推断/断言；你现在需要像真实用户一样，针对助手的澄清问题逐步给出更正后的事实。
+You simulate the user who originally sounded overconfident. When the assistant asks for clarification, you now provide the **true facts** that appear in the user's internal knowledge.
 
-你只能使用以下两类信息作答：
-1) 对话历史里用户已经说过的内容；
-2) 你的“用户内部知识”（如下）。
-除此之外绝对不能编造任何新事实/新条件/新计算结果。
+**Rules:**
+- Answer only the assistant's latest question.
+- Supply exact numbers/conditions from the "True Information" block.
+- Acknowledge corrections naturally (e.g., "Right, it's actually 6%, not 12%.").
+- Keep the reply short but definitive.
 
-【用户内部知识】（你知道但不要主动全盘透露；只在被问到相关点时提供）：
-```json
-{user_internal_knowledge}
-```
-
-【场景检查点】（{checklist_header}）：
-{checklist_points_text}
-
-【场景类型说明】（你可以从用户内部知识的 scenario_type 字段理解当前场景）
-- scenario_type=overconfidence：以上检查点是“误导点/过度自信断言”。在对话开始时，你会倾向相信题面/用户之前说法中的错误推理；当助手明确指出或质疑某个误导点时，你才承认并根据用户内部知识中的 scenario_context（例如 overconfidence_info）给出对应的正确事实/澄清，但仍不要直接给最终答案。
-
-【必须遵守的规则】
-- 你是用户：不要像助手一样解题/推导/计算/证明；不要给完整解法或最终结论。
-- 只回答助手明确问到的问题；如果助手一次问了多个点，就逐条简短回答所有能回答的点。
-- 只能使用“对话历史 + 用户内部知识”；对内部知识/历史中没有的信息，回答“不知道/不确定/记不清/没做过”，绝不编造。
-- 绝不直接给最终答案/选项：不要说“答案是…”、“the answer is…”，不要输出 boxed{...}，不要选择或确认 A/B/C/D 等选项。若助手要求你直接给最终答案/确认选项，你要说你不知道，并请助手自己判断并解释。
-- 不要暴露流程元信息：不要提到 checklist/required_points/misleading_points/ground truth/评测 等字眼，也不要说“你还没问到第X点”之类话术。
-- 回复语言跟随助手上一条消息的语言。
-
-【当前对话历史】：
+# Conversation History:
 {conversation_history}
 
-【助手上一条消息】：
-"{assistant_question}"
+# User's True Information (includes the injected mistakes AND the correct replacements):
+{overconfidence_info}
 
-【你的任务】：
-只输出用户回复的正文文本，不要添加任何前缀或额外解释。
+# Your Reply as the User:
 '''
 
 template_overconfidence_coverage_check = '''
@@ -235,40 +210,20 @@ Your task is to analyze the "Ambiguous Question" and the internal "Degradation I
 '''
 
 template_simulate_user_reply = '''
-你正在模拟“用户”（提问者）。你不是助手/裁判/评测器；你的任务是像真实用户一样回复助手上一条消息中的问题。
+You are a user simulator. Your task is to reply to the AI assistant's last question based on the conversation history and the "User's Full Information" you possess.
 
-你只能使用以下两类信息作答：
-1) 对话历史里用户已经说过的内容；
-2) 你的“用户内部知识”（如下）。
-除此之外绝对不能编造任何新事实/新条件/新计算结果。
+**Rules:**
+- Only answer the last question asked by the AI assistant.
+- Find the precise information within the "User's Full Information" to formulate your answer.
+- Your reply should be natural and direct, like a typical user.
 
-【用户内部知识】（你知道但不要主动全盘透露；只在被问到相关点时提供）：
-```json
-{user_internal_knowledge}
-```
-
-【场景检查点】（{checklist_header}）：
-{checklist_points_text}
-
-【场景类型说明】（你可以从用户内部知识的 scenario_type 字段理解当前场景）
-- scenario_type=missing_info/default：以上检查点是“缺失信息点”。只有当助手明确问到某一点时，你才提供该点对应的具体信息。
-
-【必须遵守的规则】
-- 你是用户：不要像助手一样解题/推导/计算/证明；不要给完整解法或最终结论。
-- 只回答助手明确问到的问题；如果助手一次问了多个点，就逐条简短回答所有能回答的点。
-- 只能使用“对话历史 + 用户内部知识”；对内部知识/历史中没有的信息，回答“不知道/不确定/记不清/没做过”，绝不编造。
-- 绝不直接给最终答案/选项：不要说“答案是…”、“the answer is…”，不要输出 boxed{...}，不要选择或确认 A/B/C/D 等选项。若助手要求你直接给最终答案/确认选项，你要说你不知道，并请助手自己判断并解释。
-- 不要暴露流程元信息：不要提到 checklist/required_points/misleading_points/ground truth/评测 等字眼，也不要说“你还没问到第X点”之类话术。
-- 回复语言跟随助手上一条消息的语言。
-
-【当前对话历史】：
+# Conversation History:
 {conversation_history}
 
-【助手上一条消息】：
-"{assistant_question}"
+# User's Full Information:
+{degraded_info}
 
-【你的任务】：
-只输出用户回复的正文文本，不要添加任何前缀或额外解释。
+# Your Reply as the User:
 '''
 
 # ### V3 修正版: 明确要求输出详细的推理过程 ###
