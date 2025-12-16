@@ -39,13 +39,13 @@ template_generate_overconfidence_question_and_info = '''You are an expert in adv
 
 1. **Preserve givens:** Copy every original number, constraint, and definition verbatim. Never invent or alter givens.
 2. **Inject confident mistakes:** Invent **at least two** wrong assertions about intermediate values, theorem applications, causal relations, or derived steps. They must sound authoritative yet be incorrect interpretations of the givens.
-3. **Describe mistakes first:** Before composing the question, write `overconfidence_info` as一段完整的描述文字（可用换行或破折号组织），逐条说明“错误断言 → 正确事实 → 为什么该错误会误导推导”。
+3. **Describe mistakes first:** Before composing the question, write `overconfidence_info` as a complete descriptive paragraph (organized with line breaks or dashes), explaining point by point: "incorrect assertion → correct fact → why this error would mislead the reasoning."
 4. **Checklist:** Build `misleading_points` as short labels summarizing each wrong assertion so downstream steps can track coverage.
 5. **Compose one question:** After listing the info and checklist, craft exactly one natural, overconfident question that restates the original problem, smoothly embeds the wrong assertions, and still asks for the final answer. No meta commentary.
 6. **Output format (STRICT):** Return raw JSON only (no prose/markdown) with keys in this exact order:
    {
      "overconfidence_info": "<a detailed description of each wrong assertion, the correct fact/value, and why it misleads the solution (single string)>",
-     "misleading_points": ["<short label 1>", "<short label 2>", "..."],
+     "misleading_points": ["<point 1>", "<point 2>", "<point 3>"],
      "overconfidence_question": "<single confident question that preserves all givens but includes the wrong assertions>"
    }
 

@@ -52,9 +52,7 @@ You are an expert evaluator reviewing the last response from an AI assistant tha
 
 Your responsibilities for this turn:
 1. Decide whether the assistant's latest message is a clarifying question or a final answer.
-2. Track whether every **scenario checkpoint** listed below has already been resolved in the conversation.
-   - **Scenario type = `missing_info` / `default`**: A checkpoint counts as resolved only if the user has explicitly provided or confirmed that information.
-   - **Scenario type = `overconfidence`**: Each checkpoint is a misleading claim that the assistant must explicitly question/correct. A checkpoint counts as resolved only if the assistant has explicitly addressed it in their messages. User confirmation is not required.
+2. Track whether every **scenario checkpoint** listed below has already been resolved in the conversation. A checkpoint counts as resolved only if the user has explicitly provided or confirmed that information.
 3. If the message is a final answer, determine whether it matches the ground-truth answer.
 
 ---
@@ -63,7 +61,6 @@ Your responsibilities for this turn:
 - **Original (complete) question:** <ori_question>
 - **Question variant shown to the assistant:** <scenario_question>
 - **Scenario context (why the question may be incomplete or misleading):** <scenario_context>
-- **Scenario type:** <scenario_type>
 
 ### <checklist_header>
 <required_points>
@@ -93,127 +90,40 @@ Provide your response in two parts:
 """.strip()
 
 
-# Prompt 2: 仿人模型（统一模板）
+# Prompt 2: 仿人模型 - 模拟用户回答问题 (全新优化版)
 SIMULATOR_PROMPT_TEMPLATE = """
-你正在模拟“用户”（提问者）。你不是助手/裁判/评测器，你的任务是像真实用户一样回复助手上一条消息中的问题。
+You are acting as a person seeking help from an AI assistant. You must play this role realistically.
 
-你只能使用以下两类信息作答：
-1) 对话历史里用户已经说过的内容；
-2) 你的“用户内部知识”（如下）。
-除此之外绝对不能编造任何新事实/新条件/新计算结果。
-
-【用户内部知识】（你知道但不要主动全盘透露；只在被问到相关点时提供）：
+**Your Internal Knowledge (This is what you know, but DO NOT reveal it all at once):**
 ```json
 <user_internal_knowledge>
 ```
 
-【场景检查点】（<checklist_header>）：
+**Scenario checkpoints you DO know but must only reveal if the assistant explicitly asks for them (<checklist_header>):**
 <required_points>
 
-【场景类型说明】（你可以从用户内部知识的 scenario_type 字段理解当前场景）
-- scenario_type=missing_info/default：以上检查点是“缺失信息点”。只有当助手明确问到某一点时，你才提供该点对应的具体信息。
-- scenario_type=overconfidence：以上检查点是“误导点/过度自信断言”。在对话开始时，你会倾向相信题面/用户之前说法中的错误推理；当助手明确指出或质疑某个误导点时，你才承认并根据用户内部知识中的 scenario_context（例如 overconfidence_info）给出对应的正确事实/澄清，但仍不要直接给最终答案。
+**Your Role:**
+- You are a user, not a tester. Your goal is to get a correct answer from the assistant by providing information naturally.
+- The assistant has just asked you a question.
+- Look at your "Internal Knowledge" and the conversation history.
+- Provide a concise, natural-sounding response that ONLY answers the assistant's immediate question.
+- Do NOT volunteer extra information the assistant hasn't asked for.
+- Do NOT just copy-paste from your internal knowledge. Phrase it like a real person would.
 
-【必须遵守的规则】
-- 你是用户：不要像助手一样解题/推导/计算/证明；不要给完整解法或最终结论。
-- 只回答助手明确问到的问题；如果助手一次问了多个点，就逐条简短回答所有能回答的点。
-- 只能使用“对话历史 + 用户内部知识”；对内部知识/历史中没有的信息，回答“不知道/不确定/记不清/没做过”，绝不编造。
-- 绝不直接给最终答案/选项：不要说“答案是…”、“the answer is…”，不要输出 boxed{...}，不要选择或确认 A/B/C/D 等选项。若助手要求你直接给最终答案/确认选项，你要说你不知道，并请助手自己判断并解释。
-- 不要暴露流程元信息：不要提到 checklist/required_points/misleading_points/ground truth/评测等字眼，也不要说“你还没问到第X点”之类话术。
-- 回复语言跟随助手上一条消息的语言。
-
-【当前对话历史】：
+**Current Conversation History:**
 <conversation_history>
 
-【助手上一条消息】：
+**Assistant's Last Question:**
 "<assistant_question>"
 
-【你的任务】：
-只输出用户回复的正文文本，不要添加任何前缀或额外解释。
+**Your Task:**
+Provide only the text of your response. Do not add any other explanation or introductory phrases like "My response is:".
 """.strip()
 
 # Prompt 3: 强制最终回答 
 FORCE_FINAL_ANSWER_PROMPT = """
 \n**This is the final turn.** Based on the information you have gathered so far, you MUST provide a conclusive, final answer. Do not ask any more questions.
 """.strip()
-
-
-_MC_ANSWER_LEAK_PATTERNS = [
-    r"(?i)\bthe answer is\b",
-    r"(?i)\banswer is\b",
-    r"(?i)\bcorrect answer\b",
-    r"答案是",
-    r"正确答案",
-    r"(?i)\b(option|choice)\s*[A-E]\b",
-    r"(?i)^\s*[A-E]\s*[\.\)]",
-    r"(?i)\b[A-E]\s*[\.\)]",
-    r"(?i)\bselect\s*[A-E]\b",
-    r"(?i)\bchoose\s*[A-E]\b",
-    r"(?i)\bpick\s*[A-E]\b",
-    r"选项[：:]?\s*[A-E]",
-    r"选择[：:]?\s*[A-E]",
-    r"选[：:]?\s*[A-E]",
-]
-
-
-def _looks_like_question(text: str) -> bool:
-    if not text:
-        return False
-    stripped = text.strip()
-    if "?" in stripped or "？" in stripped:
-        return True
-    # Some assistants ask without punctuation (e.g., "Can you clarify ..."). Use a light heuristic.
-    lowered = stripped.lower()
-    question_starters = ("can you", "could you", "would you", "do you", "did you", "are you", "is it", "what", "when", "where", "why", "how")
-    return lowered.startswith(question_starters)
-
-
-def _contains_cjk(text: str) -> bool:
-    return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
-
-
-def _default_user_nudge(text_for_language: str) -> str:
-    if _contains_cjk(text_for_language):
-        return "我不太确定该怎么回答你的上一段话。你能直接给出清晰的最终结论/建议吗？"
-    return "I'm not sure how to respond to your last message. Could you provide a clear final answer/explanation?"
-
-
-def _expected_answer_looks_like_multiple_choice(expected_answer: str) -> bool:
-    ans = (expected_answer or "").strip()
-    if not ans:
-        return False
-    return bool(re.search(r"(?i)^\s*[A-E]\s*[\.\)]", ans)) or bool(re.search(r"(?i)\b(option|choice)\s*[A-E]\b", ans))
-
-
-def _sanitize_simulated_user_response(
-    response_text: str,
-    *,
-    expected_answer: str = "",
-    text_for_language: str = "",
-    scenario_type: str = "",
-) -> str:
-    candidate = (response_text or "").strip()
-    if not candidate:
-        return _default_user_nudge(text_for_language)
-
-    for pattern in _MC_ANSWER_LEAK_PATTERNS:
-        if re.search(pattern, candidate):
-            return _default_user_nudge(text_for_language)
-
-    # Extra safety (MC only): if it repeats the expected answer verbatim (common in leaks), replace it.
-    expected = (expected_answer or "").strip()
-    if _expected_answer_looks_like_multiple_choice(expected) and expected.lower() in candidate.lower() and len(expected) >= 4:
-        return _default_user_nudge(text_for_language)
-
-    # Stronger safety for overconfidence: block leaking the option text itself (e.g., "Exchange transfusion")
-    if (scenario_type or "").strip().lower() == "overconfidence" and _expected_answer_looks_like_multiple_choice(expected):
-        match = re.match(r"(?i)^\s*[A-E]\s*[\.\)]\s*(.+?)\s*$", expected)
-        if match:
-            choice_text = match.group(1).strip()
-            if choice_text and len(choice_text) >= 4 and choice_text.lower() in candidate.lower():
-                return _default_user_nudge(text_for_language)
-
-    return candidate
 
 
 def format_required_points(points: List[str]) -> str:
@@ -549,7 +459,6 @@ class AskEvaluator(BaseEvaluator):
                     .replace("<ori_question>", sample_state["data"].get("ori_question", "")) \
                     .replace("<scenario_question>", scenario_question) \
                     .replace("<scenario_context>", scenario_info) \
-                    .replace("<scenario_type>", sample_state["scenario"].get("type", "default")) \
                     .replace("<checklist_header>", sample_state["scenario"]["points_header"]) \
                     .replace("<required_points>", required_points_text)
                 judge_coroutines.append(self._call_judge_with_retry(judge_prompt_str))
@@ -662,73 +571,37 @@ class AskEvaluator(BaseEvaluator):
                 continue
 
             # 4. Judge模型扮演【仿人模型 (Simulator)】
-            simulated_responses: List[str] = [""] * len(active_samples)
             simulator_coroutines = []
-            simulator_meta: List[Dict[str, Any]] = []
-
-            for idx, sample_state in enumerate(active_samples):
-                convo_str = "\n".join(
-                    [f"{msg['role']}: {msg['content']}" for msg in sample_state["conversation_history"]]
-                )
-                assistant_last = sample_state["conversation_history"][-1]["content"]
-                scenario_type = sample_state["scenario"].get("type", "default")
-
-                # 如果 assistant 没有提出清晰问题，则不调用 LLM 仿人，直接给一个安全的“催答”回复，
-                # 避免仿人模型凭空输出/泄露正确选项。
-                if not _looks_like_question(assistant_last):
-                    simulated_responses[idx] = _default_user_nudge(assistant_last)
-                    continue
-
+            for sample_state in active_samples:
                 user_knowledge = {
                     "my_real_question": sample_state["data"].get("ori_question", ""),
-                    "scenario_context": sample_state["scenario"].get("info_text", ""),
-                    "scenario_type": scenario_type,
+                    "scenario_context": sample_state["scenario"]["info_text"],
+                    "scenario_type": sample_state["scenario"]["type"],
                     "checklist_header": sample_state["scenario"]["points_header"],
-                    "checklist_points": sample_state["required_points"],
+                    "checklist_points": sample_state["required_points"]
                 }
                 user_knowledge_str = json.dumps(user_knowledge, indent=2, ensure_ascii=False)
+                convo_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in sample_state["conversation_history"]])
+                assistant_question = sample_state["conversation_history"][-1]["content"]
                 required_points_text = format_required_points(sample_state["required_points"])
-                simulator_prompt_str = (
-                    SIMULATOR_PROMPT_TEMPLATE
-                    .replace("<user_internal_knowledge>", user_knowledge_str)
-                    .replace("<conversation_history>", convo_str)
-                    .replace("<assistant_question>", assistant_last)
-                    .replace("<required_points>", required_points_text)
-                    .replace("<checklist_header>", sample_state["scenario"]["points_header"])
-                )
 
+                simulator_prompt_str = SIMULATOR_PROMPT_TEMPLATE.replace("<user_internal_knowledge>", user_knowledge_str) \
+                                                                .replace("<conversation_history>", convo_str) \
+                                                                .replace("<assistant_question>", assistant_question) \
+                                                                .replace("<required_points>", required_points_text) \
+                                                                .replace("<checklist_header>", sample_state["scenario"]["points_header"])
                 simulator_coroutines.append(
                     self._judge_infer(
                         message=[{"role": "user", "content": simulator_prompt_str}],
-                        temperature=0.5,
+                        temperature=0.5
                     )
-                )
-                simulator_meta.append(
-                    {
-                        "idx": idx,
-                        "expected_answer": sample_state["data"].get("expected_answer", ""),
-                        "assistant_last": assistant_last,
-                        "scenario_type": scenario_type,
-                    }
                 )
 
-            if simulator_coroutines:
-                simulated_responses_raw = await run_tasks_with_progress(
-                    simulator_coroutines, f"Turn {turn}: Simulating User"
-                )
-                for raw_response, meta in zip(simulated_responses_raw, simulator_meta):
-                    idx = meta["idx"]
-                    simulated_responses[idx] = _sanitize_simulated_user_response(
-                        raw_response[0],
-                        expected_answer=meta.get("expected_answer", ""),
-                        text_for_language=meta.get("assistant_last", ""),
-                        scenario_type=meta.get("scenario_type", ""),
-                    )
+            simulated_responses_raw = await run_tasks_with_progress(simulator_coroutines, f"Turn {turn}: Simulating User")
+            simulated_responses = [res[0] for res in simulated_responses_raw]
 
             for i, sample_state in enumerate(active_samples):
-                next_user_query = simulated_responses[i] or _default_user_nudge(
-                    sample_state["conversation_history"][-1]["content"]
-                )
+                next_user_query = simulated_responses[i]
                 sample_state["turn_logs"][-1]["simulated_user_response"] = next_user_query
                 sample_state["conversation_history"].append({"role": "user", "content": next_user_query})
 
