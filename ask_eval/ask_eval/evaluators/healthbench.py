@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from tqdm import tqdm
+
 from ask_eval.evaluators.base_evaluator import BaseEvaluator
 from ask_eval.evaluators.judge_utils import MAX_JUDGE_JSON_RETRIES, parse_json_to_dict
 
@@ -134,10 +136,12 @@ class HealthBenchEvaluator(BaseEvaluator):
         truncated_flags: List[str],
         prompts: List[Any],
     ) -> tuple:
-        records = []
-        per_sample_scores: List[Optional[float]] = []
+        records: List[Dict[str, Any]] = []
+        per_sample_scores: List[Optional[float]] = [None] * len(test_data)
         grader_failures = 0
-        total_rubrics = 0
+
+        sample_contexts: List[Dict[str, Any]] = []
+        grader_jobs: List[Tuple[int, int, str]] = []
 
         for idx, (sample, model_resp, thinking, truncated) in enumerate(
             zip(test_data, responses, thinking_processes, truncated_flags)
@@ -145,20 +149,71 @@ class HealthBenchEvaluator(BaseEvaluator):
             prompt_messages = prompts[idx] if idx < len(prompts) else sample.get("prompt", [])
             conversation_text, conversation_history = self._format_conversation(prompt_messages, model_resp)
             rubrics = sample.get("rubrics", []) or []
-            total_rubrics += len(rubrics)
             rubric_prompts = [
                 self._build_grader_prompt(conversation_text, str(rubric.get("criterion", "")))
                 for rubric in rubrics
             ]
 
-            grader_tasks = [self._call_grader_with_retry(p) for p in rubric_prompts]
-            grader_results = await asyncio.gather(*grader_tasks) if grader_tasks else []
+            for rubric_idx, rubric_prompt in enumerate(rubric_prompts):
+                grader_jobs.append((idx, rubric_idx, rubric_prompt))
+
+            sample_contexts.append(
+                {
+                    "sample": sample,
+                    "model_resp": model_resp,
+                    "thinking": thinking,
+                    "truncated": truncated,
+                    "conversation_text": conversation_text,
+                    "conversation_history": conversation_history,
+                    "rubrics": rubrics,
+                }
+            )
+
+        grader_results_by_sample: List[List[Optional[Dict[str, Any]]]] = [
+            [None] * len(ctx["rubrics"]) for ctx in sample_contexts
+        ]
+
+        total_rubrics = len(grader_jobs)
+        if total_rubrics:
+            queue: asyncio.Queue = asyncio.Queue()
+            for job in grader_jobs:
+                queue.put_nowait(job)
+
+            max_workers = max(1, int(self.judge_config.get("max_concurrent", 10)))
+            progress_lock = asyncio.Lock()
+
+            async def worker():
+                while True:
+                    try:
+                        sample_idx, rubric_idx, rubric_prompt = queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    result = await self._call_grader_with_retry(rubric_prompt)
+                    grader_results_by_sample[sample_idx][rubric_idx] = result
+                    queue.task_done()
+                    async with progress_lock:
+                        pbar.update(1)
+
+            with tqdm(total=total_rubrics, desc="Judging rubrics") as pbar:
+                workers = [asyncio.create_task(worker()) for _ in range(max_workers)]
+                await asyncio.gather(*workers)
+
+        for idx, ctx in enumerate(sample_contexts):
+            sample = ctx["sample"]
+            model_resp = ctx["model_resp"]
+            thinking = ctx["thinking"]
+            truncated = ctx["truncated"]
+            conversation_text = ctx["conversation_text"]
+            conversation_history = ctx["conversation_history"]
+            rubrics = ctx["rubrics"]
+            grader_results = grader_results_by_sample[idx] if idx < len(grader_results_by_sample) else []
 
             raw_score = 0.0
             valid_rubric_count = 0
             rubric_logs = []
 
             for rubric, grader_output in zip(rubrics, grader_results):
+                grader_output = grader_output or {}
                 rubric_points = float(rubric.get("points", 0))
                 entry = {
                     "criterion": rubric.get("criterion", ""),
@@ -186,7 +241,7 @@ class HealthBenchEvaluator(BaseEvaluator):
             normalized_score = raw_score / denom
             normalized_score = max(0.0, min(1.0, normalized_score))
 
-            per_sample_scores.append(normalized_score if valid_rubric_count > 0 else None)
+            per_sample_scores[idx] = normalized_score if valid_rubric_count > 0 else None
 
             record = {
                 "id": sample.get("id", idx),

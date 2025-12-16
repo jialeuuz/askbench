@@ -28,7 +28,7 @@ MODEL_NAME="azure-gpt-4_1"
 # ask_mind_math500de,ask_mind_medqade,ask_mind_gpqade,ask_mind_bbhde
 # ask_overconfidence_math500,ask_overconfidence_medqa
 # healthbench
-TASKS="gpqa"
+TASKS="healthbench"
 # [可选] 手动指定结果保存目录。若不指定，将根据模型和任务自动生成。
 SAVE_DIR="results/test-gpt-4_1"
 # SAVE_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/results/qwen3_8b"

@@ -115,6 +115,12 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
   3. 若未终结且仍有轮次，请裁判模型根据隐藏的 `ori_question` 与场景上下文（如 `degraded_info` / `overconfidence_info`）生成符合人类行为的追加信息。
   4. 记录回合日志，直至模型回答或轮次耗尽。
 
+  其中第 3 步的“仿人用户”遵循统一约束（跨领域通用）：
+  - **身份固定为用户**：只回答助手明确问到的问题，不以助手口吻解题/推导/给完整解法。
+  - **不编造**：只能使用对话历史与场景上下文/内部知识；缺失信息一律回答“不知道/不确定”。
+  - **不泄露最终答案**：不输出 `boxed{...}`、不选择/确认 A/B/C/D，不直接给最终结论。
+  - **场景差异仅在 checklist 语义**：`missing_info` 的 `required_points` 是待补齐信息点；`overconfidence` 的 `misleading_points` 是必须被助手指出并纠正的误导点（用户在被指出后才会承认并澄清对应事实）。
+
 ### 单轮 Judge 判分
 
 `math500`、`medqa`、`gpqa` 与 `bbh` 现统一通过裁判模型判分，以替代脆弱的正则比对：
@@ -192,6 +198,29 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 2. **新评估逻辑**：继承 `BaseEvaluator`，实现格式化/抽取/验证逻辑，将类注册到 `EVALUATOR_MAP`。
 3. **新任务配置**：创建 `config/common/<task>.ini`，指定 `[evalset] evalsetname`、模型、生成与路径参数。
 4. **多模型评测**：可在 `run.sh` 中批量覆盖 `--url`、`--tasks`，或编写外层调度脚本循环调用。
+
+### Auto 批量评测（vLLM 自动部署）
+
+新增 `auto_run.sh` + JSON 配置，适用于“被测模型需要按 `model_path + port` 自动起 vLLM、Judge 模型固定在其它端口”的批量评测场景。
+
+1. 复制示例配置并按需修改：
+   - `auto_run.example.json` -> `auto_run.json`
+2. 执行：
+   - `./auto_run.sh`
+
+配置要点（最少需要）：
+- `auto_run.json`：只写“被测模型列表”（JSON 顶层为数组），每个元素至少包含 `model_path`、`port`、`tasks`（数组或逗号分隔字符串）；`save_dir` 可选。
+- Judge API、vLLM 参数、默认保存目录等固定项在 `auto_run.sh` 顶部配置（不写进 JSON）。
+- 端口默认 GPU 映射在 `auto_run.sh` 内置为 `8012->0,1` / `8013->2,3`；如需覆盖可在模型里写 `cuda_devices`，并可用 `tp` 指定张量并行大小。
+
+常用参数：
+- `--dry-run`：只打印计划，不实际部署/评测。
+- `--only <regex>`：只跑名字匹配的模型（匹配 `models[].name`）。
+
+特性：
+- 每个模型会在对应 `port` 上启动 vLLM（默认 `8012->0,1` / `8013->2,3`），并等待 `/v1/models` 就绪后开始评测。
+- 评测使用临时 ini（位于 `temp/auto_run/<timestamp>/`），不会修改 `config/base.ini`。
+- 不同端口会并行跑（每个端口一个 worker），同端口模型会串行。
 
 ## 常用参数提示
 
