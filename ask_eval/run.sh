@@ -9,7 +9,7 @@ MAIN_PY_PATH="scripts/main.py"
 DEFAULT_RESULTS_ROOT="results"
 
 # --- 参数配置与说明 ---
-# 通过命令行传入的参数将覆盖 base.ini 中的对应值。
+# 直接在本脚本中修改以下变量，将覆盖 base.ini 中的对应值。
 
 # [可选] 模型 sk_token
 MODEL_SK_TOKEN="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzbFhwYnpMOHRHenhnY2dFdFh4azgxMzVIdUhuSGlZYiJ9.e6PbiPCLNvBoGDcbZmHYiWsk6VE9b9tvmoCoT_zVM4U"
@@ -49,38 +49,12 @@ GEN_MAX_CONCURRENT=100
 EVAL_MAX_CONCURRENT=100
 # [可选] 首轮引导模式：none/weak/strong/fata
 GUIDANCE_MODE="none"
-
-
-# --- 解析命令行参数 ---
-while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        -u|--url)           API_URL="$2"; shift ;;
-        -t|--tasks)         TASKS="$2"; shift ;;
-        -s|--save-dir)      SAVE_DIR="$2"; shift ;;
-        -e|--eval-api-url)  EVAL_API_URL="$2"; shift ;; # <-- 修改点3: 命令行参数改为 --eval-api-url
-        --sk-token)         MODEL_SK_TOKEN="$2"; shift ;;
-        --eval-sk-token)    EVAL_SK_TOKEN="$2"; shift ;;
-        --model-name)       MODEL_NAME="$2"; shift ;;
-        --eval-model-name)  EVAL_MODEL_NAME="$2"; shift ;;
-        --max-tokens)       MAX_TOKENS="$2"; shift ;;
-        --temp)             TEMPERATURE="$2"; shift ;;
-        --gen-concurrent)   GEN_MAX_CONCURRENT="$2"; shift ;;
-        --eval-concurrent)  EVAL_MAX_CONCURRENT="$2"; shift ;;
-        --guidance-mode)    GUIDANCE_MODE="$2"; shift ;;
-        # 如果用户请求帮助，或者输入了未知参数，给一个简短的提示
-        -h|--help|*)
-            echo "错误或请求帮助。请直接阅读脚本开头的注释以了解用法。"
-            echo "必需参数: -u <url>, -t <tasks>"
-            exit 1
-            ;;
-    esac
-    shift
-done
+# [可选] AskBench 严格模式：0/1（默认 0）。开启后将启用更严格的 Judge 判定与两轮流程约束。
+STRICT_MODE="0"
 
 # --- 校验必需参数 ---
 if [ -z "${API_URL}" ] || [ -z "${TASKS}" ]; then
-    echo "错误: 参数 -u (url) 和 -t (tasks) 是必需项。"
-    echo "请直接阅读脚本开头的注释以了解用法。"
+    echo "错误: 请在 run.sh 顶部配置 API_URL 与 TASKS。"
     exit 1
 fi
 
@@ -100,7 +74,7 @@ echo "API URL:            ${API_URL}"
 echo "任务列表:           ${TASKS}"
 echo "结果保存目录:       ${SAVE_DIR}"
 echo "---"
-echo "将覆盖以下 base.ini 参数 (如果已提供):"
+echo "将覆盖以下 base.ini 参数:"
 # <-- 修改点4: 更新打印信息，使其更清晰，并使用新变量名
 [ ! -z "${EVAL_API_URL}" ]        && echo "  [evaluatorconfig] api_url: ${EVAL_API_URL}"
 [ ! -z "${MODEL_SK_TOKEN}" ]      && echo "  [model] sk_token:            ****(hidden)"
@@ -112,6 +86,7 @@ echo "将覆盖以下 base.ini 参数 (如果已提供):"
 [ ! -z "${GEN_MAX_CONCURRENT}" ]  && echo "  [generateconfig] max_concurrent: ${GEN_MAX_CONCURRENT}"
 [ ! -z "${EVAL_MAX_CONCURRENT}" ] && echo "  [evaluatorconfig] max_concurrent:${EVAL_MAX_CONCURRENT}"
 [ ! -z "${GUIDANCE_MODE}" ]       && echo "  [ask_evaluator] guidance_mode:       ${GUIDANCE_MODE}"
+[ ! -z "${STRICT_MODE}" ]         && echo "  [ask_evaluator] strict_mode:         ${STRICT_MODE}"
 echo "---"
 
 # --- 修改配置文件 ---
@@ -169,6 +144,7 @@ update_config "path" "save_dir" "${SAVE_DIR}"
 [ ! -z "${TEMPERATURE}" ]         && update_config "generateconfig" "temperature" "${TEMPERATURE}"
 [ ! -z "${GEN_MAX_CONCURRENT}" ]  && update_config "generateconfig" "max_concurrent" "${GEN_MAX_CONCURRENT}"
 [ ! -z "${EVAL_MAX_CONCURRENT}" ] && update_config "evaluatorconfig" "max_concurrent" "${EVAL_MAX_CONCURRENT}"
+[ "${STRICT_MODE}" == "1" ]       && update_config "evaluatorconfig" "max_turns" "2"
 
 echo "配置文件修改完成。"
 echo "---"
@@ -176,6 +152,7 @@ echo "---"
 # --- 运行主程序 ---
 echo "正在启动评估脚本: ${MAIN_PY_PATH}"
 export GUIDANCE_MODE
+export STRICT_MODE
 python "${MAIN_PY_PATH}" --config "${BASE_CONFIG_PATH}"
 
 # --- 恢复配置文件 ---

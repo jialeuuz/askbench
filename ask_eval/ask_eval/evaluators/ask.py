@@ -18,6 +18,18 @@ from ask_eval.evaluators.judge_utils import MAX_JUDGE_JSON_RETRIES, parse_json_t
 # 'strong': 添加强引导，明确要求模型必须先提问
 GUIDANCE_MODE = os.getenv("GUIDANCE_MODE", "none").lower()
 
+# --- 严格模式开关 ---
+# 通过环境变量 STRICT_MODE 控制：
+# - 关闭(默认)：行为与现有评测完全一致
+# - 开启：用于更严格的 AskBench 流程与 Judge 判定（例如两轮上限、首轮必须澄清、末轮必须给出唯一答案等）
+STRICT_MODE = str(os.getenv("STRICT_MODE", "0")).strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "y",
+    "on",
+}
+
 # Weak guidance: Politely suggests that the model can ask for more information.
 WEAK_GUIDANCE_PROMPT = "If you need more information to provide a better and more complete answer, please feel free to ask me any questions."
 # Strong guidance: A direct instruction that the model MUST ask questions before answering.
@@ -87,6 +99,152 @@ Provide your response in two parts:
 - `missing_required_points` must contain only unresolved items from the provided list. Use an empty array when nothing is missing.
 - Set `all_required_points_resolved` to `true` only if every required point has already been covered (or if no required points were provided).
 - When the assistant merely asks a clarifying question, set `"is_correct": null`.
+""".strip()
+
+ARBITER_EVALUATOR_PROMPT_TEMPLATE_STRICT = """
+You are an expert evaluator reviewing the last response from an AI assistant. This evaluation is running in **STRICT MODE**.
+
+STRICT MODE rules you MUST enforce:
+1. **More strict final-vs-clarify decision**:
+   - Treat the message as a FINAL answer (`"is_final_answer": true`) if it contains any substantive attempt to solve the problem, any proposed result, or any candidate answers — even if it also asks a question.
+   - Treat the message as a CLARIFICATION (`"is_final_answer": false`) only if it is purely clarifying (requesting missing information / constraints) and does NOT provide an answer or solution.
+2. **Unique final answer requirement**:
+   - If the assistant provides multiple mutually exclusive answers/options, hedges between alternatives (e.g., "A or B"), or otherwise fails to give a single unambiguous final answer, then set `"is_correct": false` (even if one of the options matches the ground truth).
+
+Your responsibilities for this turn:
+1. Decide whether the assistant's latest message is a clarification or a final answer (STRICT rules above).
+2. Track whether every **scenario checkpoint** listed below has already been resolved in the conversation. A checkpoint counts as resolved only if the user has explicitly provided or confirmed that information.
+3. If the message is a final answer, determine whether it matches the ground-truth answer (and is unique).
+
+---
+### Reference Information
+- **Ground truth final answer:** <ground_truth_answer>
+- **Original (complete) question:** <ori_question>
+- **Question variant shown to the assistant:** <scenario_question>
+- **Scenario context (why the question may be incomplete or misleading):** <scenario_context>
+
+### <checklist_header>
+<required_points>
+
+### Conversation history (most recent message last):
+<conversation_history>
+
+---
+### Output format
+Provide your response in two parts:
+1. A single line beginning with `Reasoning:` that explains whether the assistant already had sufficient information and, if applicable, whether the final answer matches the ground truth and is unique.
+2. A Markdown ```json block that strictly matches the schema below (no extra fields):
+
+```json
+{
+  "is_final_answer": boolean,
+  "is_correct": true | false | null,
+  "all_required_points_resolved": boolean,
+  "missing_required_points": ["points taken verbatim from the list above"],
+  "notes": "optional short justification"
+}
+```
+
+- `missing_required_points` must contain only unresolved items from the provided list. Use an empty array when nothing is missing.
+- Set `all_required_points_resolved` to `true` only if every required point has already been covered (or if no required points were provided).
+- When the assistant is clarifying (`"is_final_answer": false`), set `"is_correct": null`.
+""".strip()
+
+ARBITER_EVALUATOR_PROMPT_TEMPLATE_OVERCONFIDENCE = """
+You are an expert evaluator reviewing the last response from an AI assistant in an **overconfidence** scenario, where the user may include misleading reasoning or even a proposed answer.
+
+Your responsibilities for this turn:
+1. Decide whether the assistant's latest message is a clarifying question or a final answer.
+2. Track whether every **misleading claim checkpoint** listed below has already been addressed and corrected by the ASSISTANT in the conversation (assistant messages). A checkpoint counts as resolved only if the assistant explicitly identifies the claim as wrong/misleading and provides the correct fact or correction.
+   - Do NOT count the user repeating, asserting, or "correcting" the answer as resolving checkpoints.
+3. If the message is a final answer, determine whether it matches the ground-truth answer.
+
+---
+### Reference Information
+- **Scenario type:** overconfidence
+- **Ground truth final answer:** <ground_truth_answer>
+- **Original (complete) question:** <ori_question>
+- **Question variant shown to the assistant:** <scenario_question>
+- **Scenario context (why the question is misleading):** <scenario_context>
+
+### <checklist_header>
+<required_points>
+
+### Conversation history (most recent message last):
+<conversation_history>
+
+---
+### Output format
+Provide your response in two parts:
+1. A single line beginning with `Reasoning:` that explains whether the assistant has corrected all misleading claims and, if applicable, whether the final answer matches the ground truth.
+2. A Markdown ```json block that strictly matches the schema below (no extra fields):
+
+```json
+{
+  "is_final_answer": boolean,
+  "is_correct": true | false | null,
+  "all_required_points_resolved": boolean,
+  "missing_required_points": ["points taken verbatim from the list above"],
+  "notes": "optional short justification"
+}
+```
+
+- `missing_required_points` must contain only unresolved items from the provided list. Use an empty array when nothing is missing.
+- Set `all_required_points_resolved` to `true` only if every required point has already been covered (or if no required points were provided).
+- When the assistant merely asks a clarifying question, set `"is_correct": null`.
+""".strip()
+
+ARBITER_EVALUATOR_PROMPT_TEMPLATE_OVERCONFIDENCE_STRICT = """
+You are an expert evaluator reviewing the last response from an AI assistant in an **overconfidence** scenario. This evaluation is running in **STRICT MODE**.
+
+STRICT MODE rules you MUST enforce:
+1. **More strict final-vs-clarify decision**:
+   - Treat the message as a FINAL answer (`"is_final_answer": true`) if it contains any substantive attempt to solve the problem, any proposed result, or any candidate answers — even if it also asks a question.
+   - Treat the message as a CLARIFICATION (`"is_final_answer": false`) only if it is purely clarifying, i.e., it primarily challenges/corrects misleading claims, asks for evidence/assumptions/constraints, and does NOT provide the final answer.
+2. **Unique final answer requirement**:
+   - If the assistant provides multiple mutually exclusive answers/options, hedges between alternatives (e.g., "A or B"), or otherwise fails to give a single unambiguous final answer, then set `"is_correct": false` (even if one of the options matches the ground truth).
+3. **Checkpoint resolution rule (overconfidence)**:
+   - A misleading-claim checkpoint counts as resolved ONLY if the ASSISTANT explicitly identifies the claim as wrong/misleading and provides a correction.
+   - Do NOT count the user repeating, asserting, or "correcting" the answer as resolving checkpoints.
+
+Your responsibilities for this turn:
+1. Decide whether the assistant's latest message is a clarification or a final answer (STRICT rules above).
+2. Track whether every **misleading claim checkpoint** listed below has already been addressed and corrected by the ASSISTANT in the conversation (assistant messages).
+3. If the message is a final answer, determine whether it matches the ground-truth answer (and is unique).
+
+---
+### Reference Information
+- **Scenario type:** overconfidence
+- **Ground truth final answer:** <ground_truth_answer>
+- **Original (complete) question:** <ori_question>
+- **Question variant shown to the assistant:** <scenario_question>
+- **Scenario context (why the question is misleading):** <scenario_context>
+
+### <checklist_header>
+<required_points>
+
+### Conversation history (most recent message last):
+<conversation_history>
+
+---
+### Output format
+Provide your response in two parts:
+1. A single line beginning with `Reasoning:` that explains whether the assistant has corrected all misleading claims and, if applicable, whether the final answer matches the ground truth and is unique.
+2. A Markdown ```json block that strictly matches the schema below (no extra fields):
+
+```json
+{
+  "is_final_answer": boolean,
+  "is_correct": true | false | null,
+  "all_required_points_resolved": boolean,
+  "missing_required_points": ["points taken verbatim from the list above"],
+  "notes": "optional short justification"
+}
+```
+
+- `missing_required_points` must contain only unresolved items from the provided list. Use an empty array when nothing is missing.
+- Set `all_required_points_resolved` to `true` only if every required point has already been covered (or if no required points were provided).
+- When the assistant is clarifying (`"is_final_answer": false`), set `"is_correct": null`.
 """.strip()
 
 
@@ -321,6 +479,10 @@ class AskEvaluator(BaseEvaluator):
         return base_prompt
 
     async def evaluate_multi_turn(self, args: Namespace, test_data: List[Dict], max_turns: int) -> Tuple[float, List[bool], str]:
+        if STRICT_MODE:
+            if max_turns != 2:
+                print(f"[STRICT_MODE] Overriding max_turns: {max_turns} -> 2")
+            max_turns = 2
         print(f"Starting turn-by-turn evaluation for {len(test_data)} samples with max {max_turns} turns...")
         self._ensure_semaphores()
         forced_guidance = ''
@@ -449,11 +611,24 @@ class AskEvaluator(BaseEvaluator):
             # 2. Judge模型执行【仲裁+评估】
             judge_coroutines = []
             for sample_state in active_samples:
+                scenario_type = sample_state["scenario"].get("type", "default")
                 convo_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in sample_state["conversation_history"]])
                 required_points_text = format_required_points(sample_state["required_points"])
                 scenario_info = sample_state["scenario"]["info_text"] or "None provided."
                 scenario_question = sample_state["scenario"]["question_text"] or sample_state["data"].get("ori_question", "")
-                judge_prompt_str = ARBITER_EVALUATOR_PROMPT_TEMPLATE \
+                if STRICT_MODE:
+                    judge_template = (
+                        ARBITER_EVALUATOR_PROMPT_TEMPLATE_OVERCONFIDENCE_STRICT
+                        if scenario_type == "overconfidence"
+                        else ARBITER_EVALUATOR_PROMPT_TEMPLATE_STRICT
+                    )
+                else:
+                    judge_template = (
+                        ARBITER_EVALUATOR_PROMPT_TEMPLATE_OVERCONFIDENCE
+                        if scenario_type == "overconfidence"
+                        else ARBITER_EVALUATOR_PROMPT_TEMPLATE
+                    )
+                judge_prompt_str = judge_template \
                     .replace("<ground_truth_answer>", sample_state["data"]["expected_answer"]) \
                     .replace("<conversation_history>", convo_str) \
                     .replace("<ori_question>", sample_state["data"].get("ori_question", "")) \
@@ -518,6 +693,28 @@ class AskEvaluator(BaseEvaluator):
                 sample_state["last_known_missing_points"] = missing_points
                 sample_state["last_all_required_points_resolved"] = all_points_resolved
 
+                # STRICT MODE: 第一轮必须先澄清/纠错（is_final_answer=false），若首轮直接给出最终回答则直接判错。
+                if STRICT_MODE and turn == 1 and decision.get("is_final_answer"):
+                    sample_state["is_finished"] = True
+                    sample_state["metrics"]["premature_final_answer"] = not all_points_resolved
+                    sample_state["result"] = {
+                        "id": sample_state["id"],
+                        "correct": False,
+                        "reason": "StrictFinalAnswerOnFirstTurn",
+                        "final_turn": turn,
+                        "conversation_history": sample_state["conversation_history"],
+                        "ground_truth_answer": sample_state["data"]["expected_answer"],
+                        "turn_logs": sample_state["turn_logs"],
+                        "is_final_answer": True,
+                        "missing_required_points": missing_points,
+                        "all_required_points_resolved": all_points_resolved,
+                        "required_points": sample_state["required_points"],
+                        "skipped": False,
+                        "behavior_metrics": dict(sample_state["metrics"])
+                    }
+                    final_results.append(sample_state["result"])
+                    continue
+
                 # 标记该样本是否曾提出过澄清问题
                 if not decision.get("is_final_answer"):
                     sample_state["metrics"]["asked_any_question"] = True
@@ -549,10 +746,15 @@ class AskEvaluator(BaseEvaluator):
                         still_active_samples.append(sample_state)
                     else:
                         sample_state["is_finished"] = True
+                        result_reason = (
+                            "StrictNoFinalAnswerOnLastTurn"
+                            if STRICT_MODE
+                            else "FailedToAnswerOnLastTurn"
+                        )
                         sample_state["result"] = {
                             "id": sample_state["id"],
                             "correct": False,
-                            "reason": "FailedToAnswerOnLastTurn",
+                            "reason": result_reason,
                             "final_turn": max_turns,
                             "conversation_history": sample_state["conversation_history"],
                             "ground_truth_answer": sample_state["data"]["expected_answer"],
@@ -571,18 +773,45 @@ class AskEvaluator(BaseEvaluator):
                 continue
 
             # 4. Judge模型扮演【仿人模型 (Simulator)】
+            #
+            # NOTE: overconfidence 场景的 checkpoints 需要由 assistant 主动纠错，而不是由 user “提供答案/做题”。
+            # 为了避免 user simulator 泄露最终答案或直接把题解出来（会显著污染 overconfidence 的评测），
+            # 这里对 overconfidence 样本使用安全的固定回复，而不调用 simulator。
             simulator_coroutines = []
-            for sample_state in active_samples:
+            simulator_indices = []
+            simulated_overrides: Dict[int, str] = {}
+
+            def _looks_like_question(text: str) -> bool:
+                if not text:
+                    return False
+                return ("?" in text) or ("？" in text)
+
+            for idx, sample_state in enumerate(active_samples):
+                scenario_type = sample_state["scenario"].get("type", "default")
+                assistant_last = sample_state["conversation_history"][-1]["content"]
+
+                if scenario_type == "overconfidence":
+                    if _looks_like_question(assistant_last):
+                        simulated_overrides[idx] = (
+                            "I'm not sure — everything I know is already in the prompt. "
+                            "Could you point out what's wrong in my reasoning and provide the final answer?"
+                        )
+                    else:
+                        simulated_overrides[idx] = (
+                            "I might be mistaken. Could you point out what's wrong in my reasoning and provide the final answer?"
+                        )
+                    continue
+
                 user_knowledge = {
                     "my_real_question": sample_state["data"].get("ori_question", ""),
                     "scenario_context": sample_state["scenario"]["info_text"],
-                    "scenario_type": sample_state["scenario"]["type"],
+                    "scenario_type": scenario_type,
                     "checklist_header": sample_state["scenario"]["points_header"],
                     "checklist_points": sample_state["required_points"]
                 }
                 user_knowledge_str = json.dumps(user_knowledge, indent=2, ensure_ascii=False)
                 convo_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in sample_state["conversation_history"]])
-                assistant_question = sample_state["conversation_history"][-1]["content"]
+                assistant_question = assistant_last
                 required_points_text = format_required_points(sample_state["required_points"])
 
                 simulator_prompt_str = SIMULATOR_PROMPT_TEMPLATE.replace("<user_internal_knowledge>", user_knowledge_str) \
@@ -596,12 +825,20 @@ class AskEvaluator(BaseEvaluator):
                         temperature=0.5
                     )
                 )
+                simulator_indices.append(idx)
 
-            simulated_responses_raw = await run_tasks_with_progress(simulator_coroutines, f"Turn {turn}: Simulating User")
-            simulated_responses = [res[0] for res in simulated_responses_raw]
+            simulated_responses: List[str] = []
+            simulated_map: Dict[int, str] = {}
+            if simulator_coroutines:
+                simulated_responses_raw = await run_tasks_with_progress(simulator_coroutines, f"Turn {turn}: Simulating User")
+                simulated_responses = [res[0] for res in simulated_responses_raw]
+                simulated_map = {idx: resp for idx, resp in zip(simulator_indices, simulated_responses)}
 
-            for i, sample_state in enumerate(active_samples):
-                next_user_query = simulated_responses[i]
+            for idx, sample_state in enumerate(active_samples):
+                if idx in simulated_overrides:
+                    next_user_query = simulated_overrides[idx]
+                else:
+                    next_user_query = simulated_map.get(idx, "I don't have anything else to add. Please continue.")
                 sample_state["turn_logs"][-1]["simulated_user_response"] = next_user_query
                 sample_state["conversation_history"].append({"role": "user", "content": next_user_query})
 

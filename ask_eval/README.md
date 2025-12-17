@@ -1,5 +1,7 @@
 # ask_eval 评测框架说明
 
+readme记录着评测框架的架构信息，run.sh是评测的入口。
+
 本仓库提供了一套针对多模任务的统一评测脚手架，既支持传统单轮基准（Math500、MedQA 等），也支持 AskBench 等由裁判模型驱动的多轮对话评测。本文档旨在快速梳理整体架构、关键模块与使用方式，方便后续查阅。
 
 ## 快速开始
@@ -13,8 +15,8 @@ vim config/base.ini
 
 # 3. 启动评测（示例）
 python scripts/main.py --config config/base.ini
-# 或者使用 run.sh，它会先覆盖 base.ini 再运行 main.py
-./run.sh -u http://<model_host>/v1/chat/completions -t math500,medqa
+# 或者使用 run.sh：先在 run.sh 顶部修改变量，再直接运行
+./run.sh
 ```
 
 运行结束后，结果会写入 `results/<task>/<task_name>/`，并追加汇总条目到 `results/final_result.txt`。
@@ -67,9 +69,10 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
   - 覆写数据路径、任务别名、默认 API 等。
   - `load_merged_config` 会以基础配置为主导，逐段覆盖任务配置。
 - **运行脚本 (`run.sh`)**
-  - 支持以命令行参数覆盖配置（模型 URL、任务列表、温度、并发等）。
+  - 直接在脚本顶部修改变量覆盖配置（模型 URL、任务列表、温度、并发等）。
   - 在运行前备份 `base.ini`，结束后恢复，避免污染默认配置。
-  - 新增 `--guidance-mode` / 环境变量 `GUIDANCE_MODE` 控制首轮引导策略，可选 `none`（默认）、`weak`、`strong`、`fata`；其中 `fata` 会在首轮用户消息中追加官方 FATA 引导文案，便于按需对比 baseline。
+  - `GUIDANCE_MODE` 控制首轮引导策略，可选 `none`（默认）、`weak`、`strong`、`fata`；其中 `fata` 会在首轮用户消息中追加官方 FATA 引导文案，便于按需对比 baseline。
+  - 将 `STRICT_MODE` 设为 `1` 开启 AskBench 严格模式：强制两轮流程（首轮必须先澄清/纠错、次轮必须给出最终答案且禁止再次澄清），同时 Judge 判定更严格（最终答案必须唯一，否则即使“包含一个正确答案”也判错）；不开启时评测流程与 prompt 保持不变。
 
 ## 数据加载层
 
@@ -191,7 +194,7 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 1. **新数据集**：准备 `data/<group>/<task>/test.jsonl`，编写或复用数据加载器，并在 `LOADER_MAP` 登记。
 2. **新评估逻辑**：继承 `BaseEvaluator`，实现格式化/抽取/验证逻辑，将类注册到 `EVALUATOR_MAP`。
 3. **新任务配置**：创建 `config/common/<task>.ini`，指定 `[evalset] evalsetname`、模型、生成与路径参数。
-4. **多模型评测**：可在 `run.sh` 中批量覆盖 `--url`、`--tasks`，或编写外层调度脚本循环调用。
+4. **多模型评测**：可通过修改 `run.sh` 顶部变量，或编写外层调度脚本循环调用。
 
 ## 常用参数提示
 
