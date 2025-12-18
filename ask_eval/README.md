@@ -71,6 +71,7 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
 - **运行脚本 (`run.sh`)**
   - 直接在脚本顶部修改变量覆盖配置（模型 URL、任务列表、温度、并发等）。
   - 在运行前备份 `base.ini`，结束后恢复，避免污染默认配置。
+  - `max_turns` 默认 3 轮，可在 `config/base.ini` 的 `[evaluatorconfig] max_turns` 调整，或通过 `./run.sh --max-turns N` 显式指定。
   - `GUIDANCE_MODE` 控制首轮引导策略，可选 `none`（默认）、`weak`、`strong`、`fata`；其中 `fata` 会在首轮用户消息中追加官方 FATA 引导文案，便于按需对比 baseline。
   - 将 `STRICT_MODE` 设为 `1` 开启 AskBench 严格模式：强制两轮流程（首轮必须先澄清/纠错、次轮必须给出最终答案且禁止再次澄清），同时 Judge 判定更严格（最终答案必须唯一，否则即使“包含一个正确答案”也判错）；不开启时评测流程与 prompt 保持不变。
 
@@ -187,7 +188,7 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
   2. 每轮回复都会交给裁判（Judge）模型。裁判拿到 `ori_question`、`degraded_info`、`required_points` 与 `expected_answer`，判断当前回复是否在补充信息：
      - 若确实在提问，裁判会按照原题事实写出用户补充信息，并把这些内容作为第二轮输入传给被测模型；
      - 若已经开始作答，则直接判定正误。
-  3. 最多只允许两轮。第二轮若仍然追问，会被视为违反“只问一次就给答案”的规则而判错。
+  3. 官方协议通常按两轮设置（`max_turns=2`）；框架层面可通过 `[evaluatorconfig] max_turns`（或 `./run.sh --max-turns N`）调整轮次。在两轮设置下，第二轮若仍然追问，会被视为违反“只问一次就给答案”的规则而判错。
 - **判分机制**：
   - 裁判输出 JSON，包含 `needs_more_info`、`user_reply`（可选）、`is_correct` 与 `reason`。当 `needs_more_info=false` 时，会基于 `expected_answer` 判定最终是否正确。
   - 输出文件沿用 AskBench 规格：`askbench_detailed_results.json` 记录完整对话轨迹与裁判结论，`summary_results.json`/`results.txt` 则统计准确率、是否触发澄清、第二轮仍提问的失败案例以及裁判解析失败数。

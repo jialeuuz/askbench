@@ -49,6 +49,52 @@ EVAL_MAX_CONCURRENT=100
 GUIDANCE_MODE="none"
 # [可选] AskBench 严格模式：0/1（默认 0）。开启后将启用更严格的 Judge 判定与两轮流程约束。
 STRICT_MODE="0"
+# [可选] 最大对话轮次：默认 3。可通过命令行参数覆盖：./run.sh --max-turns 4
+MAX_TURNS="3"
+
+print_usage() {
+    cat <<EOF
+Usage: ./run.sh [--max-turns N]
+
+Options:
+  --max-turns, -t   Set evaluator max_turns (default: 3)
+  --help, -h        Show this help
+EOF
+}
+
+# --- 命令行参数解析（优先级高于脚本内变量） ---
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --max-turns|-t)
+            if [[ -z "${2:-}" ]]; then
+                echo "错误: --max-turns 需要一个整数参数" >&2
+                exit 1
+            fi
+            MAX_TURNS="$2"
+            shift 2
+            ;;
+        --help|-h)
+            print_usage
+            exit 0
+            ;;
+        *)
+            echo "错误: 未知参数: $1" >&2
+            print_usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+if ! [[ "${MAX_TURNS}" =~ ^[0-9]+$ ]] || [[ "${MAX_TURNS}" -lt 1 ]]; then
+    echo "错误: --max-turns 必须是 >= 1 的整数，当前为: ${MAX_TURNS}" >&2
+    exit 1
+fi
+
+# STRICT_MODE 会强制两轮（与评测器内部逻辑保持一致）
+if [[ "${STRICT_MODE}" == "1" ]] && [[ "${MAX_TURNS}" != "2" ]]; then
+    echo "[STRICT_MODE] Overriding --max-turns: ${MAX_TURNS} -> 2" >&2
+    MAX_TURNS="2"
+fi
 
 # --- 校验必需参数 ---
 if [ -z "${API_URL}" ] || [ -z "${TASKS}" ]; then
@@ -83,6 +129,7 @@ echo "将覆盖以下 base.ini 参数:"
 [ ! -z "${TEMPERATURE}" ]         && echo "  [generateconfig] temperature:        ${TEMPERATURE}"
 [ ! -z "${GEN_MAX_CONCURRENT}" ]  && echo "  [generateconfig] max_concurrent: ${GEN_MAX_CONCURRENT}"
 [ ! -z "${EVAL_MAX_CONCURRENT}" ] && echo "  [evaluatorconfig] max_concurrent:${EVAL_MAX_CONCURRENT}"
+[ ! -z "${MAX_TURNS}" ]           && echo "  [evaluatorconfig] max_turns:     ${MAX_TURNS}"
 [ ! -z "${GUIDANCE_MODE}" ]       && echo "  [ask_evaluator] guidance_mode:       ${GUIDANCE_MODE}"
 [ ! -z "${STRICT_MODE}" ]         && echo "  [ask_evaluator] strict_mode:         ${STRICT_MODE}"
 echo "---"
@@ -142,7 +189,7 @@ update_config "path" "save_dir" "${SAVE_DIR}"
 [ ! -z "${TEMPERATURE}" ]         && update_config "generateconfig" "temperature" "${TEMPERATURE}"
 [ ! -z "${GEN_MAX_CONCURRENT}" ]  && update_config "generateconfig" "max_concurrent" "${GEN_MAX_CONCURRENT}"
 [ ! -z "${EVAL_MAX_CONCURRENT}" ] && update_config "evaluatorconfig" "max_concurrent" "${EVAL_MAX_CONCURRENT}"
-[ "${STRICT_MODE}" == "1" ]       && update_config "evaluatorconfig" "max_turns" "2"
+[ ! -z "${MAX_TURNS}" ]           && update_config "evaluatorconfig" "max_turns" "${MAX_TURNS}"
 
 echo "配置文件修改完成。"
 echo "---"
