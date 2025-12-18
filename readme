@@ -1,34 +1,6 @@
-步骤 1: 部署待评测模型的 API 服务
-- 打开部署脚本，例如 tools/vllm.sh。
-- 修改 MODEL_PATH 变量，指向你的模型文件路径。
-- 运行脚本以启动 API 服务。请记下服务的 IP 地址和端口。
+ask_eval是评测pipeline，data_pipeline是数据构建pipeline。
+ask_eval/README.md记录着ask_eval的使用说明，ask_eval/run.sh是评测框架的入口脚本。
+data_pipeline/readme记录着data_pipeline的使用说明，data_pipeline/main.py是数据构建的入口脚本。
 
-步骤 2: 配置评测脚本
 
-- 打开评测运行脚本 scripts/run.sh。
-- 根据你的环境修改以下环境变量：
-# 你的项目根目录
-export PYTHONPATH=/path/to/your/askQ/project
 
-# 步骤 1 中部署的待评测模型的 API 地址
-export API_URL="http://<IP_ADDRESS>:<PORT>/v1/chat/completions"
-
-# 要评测的任务名称，多个任务用逗号分隔 (例如: "ceval,mmlu")
-export TASKS="your_task_name"
-
-# 评测结果的保存目录
-export SAVE_DIR="./outputs/results"
-
-# 用于评审的 Judge 模型 API 地址 (如果任务需要)
-export EVAL_API_URL="http://<JUDGE_IP>:<JUDGE_PORT>/v1/chat/completions"
-步骤 3: 运行评测
-
-建议在 tmux 或 screen 中运行，以防终端断开。
-
-bash scripts/run.sh
-
-评测完成后，结果将保存在你指定的 SAVE_DIR 目录下。
-
-   
-
-  

@@ -165,6 +165,11 @@ async def _run_batch_step_with_retry(
                         format_args['required_points'] = json.dumps(format_args['required_points'], ensure_ascii=False, indent=2)
                     except Exception:
                         format_args['required_points'] = str(format_args['required_points'])
+                if 'misleading_points' in format_args and not isinstance(format_args['misleading_points'], str):
+                    try:
+                        format_args['misleading_points'] = json.dumps(format_args['misleading_points'], ensure_ascii=False, indent=2)
+                    except Exception:
+                        format_args['misleading_points'] = str(format_args['misleading_points'])
                 # 使用安全替换，避免模板中的 JSON 花括号触发 KeyError
                 prompts_for_this_batch.append(_safe_format(prompt_template, format_args))
                 valid_indices_for_batch.append(index)
@@ -357,7 +362,7 @@ async def _run_multi_turn_strategy(
         # --- 步骤 3: 批量模拟用户回复 ---
         reply_results, failed_reply = await _run_batch_step_with_retry(
             api_client, items_to_process, "步骤 3: 模拟用户回复", templates[template_config['simulate_user']],
-            ['conversation_history', info_key],
+            ['conversation_history', info_key, checklist_key],
             lambda r: (r, None), {'max_tokens': 2048, 'temperature': 0.5}
         )
         total_discarded_items.extend(failed_reply)
