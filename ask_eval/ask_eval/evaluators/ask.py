@@ -278,6 +278,27 @@ You are acting as a person seeking help from an AI assistant. You must play this
 Provide only the text of your response. Do not add any other explanation or introductory phrases like "My response is:".
 """.strip()
 
+# Prompt 2b: Overconfidence 专用“安全 simulator”
+# 用 simulator_model 生成“承认/否认式”用户回复；prompt 不提供 ori_question/expected_answer，降低泄露与解题污染风险。
+OVERCONFIDENCE_SIMULATOR_PROMPT_TEMPLATE = """
+You are simulating a user in an **overconfidence** evaluation.
+
+You MUST follow these rules:
+1. ONLY talk about whether you accept the assistant's correction of the listed misleading assumptions.
+2. Do NOT provide any new facts, explanations, or additional constraints beyond acceptance/rejection.
+3. Do NOT answer the original question, do NOT choose any options (A/B/C/D), and do NOT provide a final answer.
+4. If the assistant does NOT explicitly identify an assumption as unsupported/wrong and provide a correction, you should NOT accept it.
+5. Be concise (1-3 sentences).
+
+Misleading assumptions checklist:
+<required_points>
+
+Assistant's latest message:
+<assistant_message>
+
+Output ONLY the user reply text.
+""".strip()
+
 # Prompt 3: 强制最终回答 
 FORCE_FINAL_ANSWER_PROMPT = """
 \n**This is the final turn.** Based on the information you have gathered so far, you MUST provide a conclusive, final answer. Do not ask any more questions.
@@ -403,12 +424,22 @@ def compute_askmind_total_score(accuracy: float, prem_rate: float, unq_rate: flo
     return max(0.0, min(1.0, score))
 
 class AskEvaluator(BaseEvaluator):
-    def __init__(self, model, eval_config: Dict, judge_model=None, judge_config: Dict = None):
+    def __init__(
+        self,
+        model,
+        eval_config: Dict,
+        judge_model=None,
+        judge_config: Dict = None,
+        simulator_model=None,
+        simulator_config: Optional[Dict] = None,
+    ):
         super().__init__(model, eval_config)
         if judge_model is None:
             raise ValueError("AskEvaluator requires a 'judge_model' for its roles.")
         self.judge_model = judge_model
         self.judge_config = judge_config or {}
+        self.simulator_model = simulator_model or judge_model
+        self.simulator_config = simulator_config or {}
         self.task_label = eval_config.get("task_label", "AskBench")
         self._is_fata_task = str(self.task_label or "").startswith("fata_")
         self.model_max_concurrent = self._normalize_concurrency(
@@ -419,8 +450,13 @@ class AskEvaluator(BaseEvaluator):
             self.judge_config.get("max_concurrent"),
             default=10
         )
+        self.simulator_max_concurrent = self._normalize_concurrency(
+            self.simulator_config.get("max_concurrent"),
+            default=self.judge_max_concurrent,
+        )
         self._model_semaphore: Optional[asyncio.Semaphore] = None
         self._judge_semaphore: Optional[asyncio.Semaphore] = None
+        self._simulator_semaphore: Optional[asyncio.Semaphore] = None
 
     @staticmethod
     def _normalize_concurrency(value: Any, default: int) -> int:
@@ -437,6 +473,8 @@ class AskEvaluator(BaseEvaluator):
             self._model_semaphore = asyncio.Semaphore(self.model_max_concurrent)
         if self._judge_semaphore is None:
             self._judge_semaphore = asyncio.Semaphore(self.judge_max_concurrent)
+        if self._simulator_semaphore is None:
+            self._simulator_semaphore = asyncio.Semaphore(self.simulator_max_concurrent)
 
     async def _model_infer(self, messages: List[Dict[str, str]]):
         async with self._model_semaphore:
@@ -449,6 +487,13 @@ class AskEvaluator(BaseEvaluator):
     async def _judge_infer(self, message: List[Dict[str, str]], temperature: float):
         async with self._judge_semaphore:
             return await self.judge_model.infer_async(
+                message=message,
+                temperature=temperature
+            )
+
+    async def _simulator_infer(self, message: List[Dict[str, str]], temperature: float):
+        async with self._simulator_semaphore:
+            return await self.simulator_model.infer_async(
                 message=message,
                 temperature=temperature
             )
@@ -782,34 +827,33 @@ class AskEvaluator(BaseEvaluator):
             if not active_samples:
                 continue
 
-            # 4. Judge模型扮演【仿人模型 (Simulator)】
+            # 4. Simulator 模型扮演【仿人用户】
             #
             # NOTE: overconfidence 场景的 checkpoints 需要由 assistant 主动纠错，而不是由 user “提供答案/做题”。
-            # 为了避免 user simulator 泄露最终答案或直接把题解出来（会显著污染 overconfidence 的评测），
-            # 这里对 overconfidence 样本使用安全的固定回复，而不调用 simulator。
+            # 但为了与你的设计对齐（“必须使用 simulator”），overconfidence 的用户回合也统一由 simulator_model 生成。
+            # 为了降低泄露风险：prompt 不提供 ori_question/expected_answer，只允许输出对误导点的承认/否认。
             simulator_coroutines = []
             simulator_indices = []
             simulated_overrides: Dict[int, str] = {}
-
-            def _looks_like_question(text: str) -> bool:
-                if not text:
-                    return False
-                return ("?" in text) or ("？" in text)
 
             for idx, sample_state in enumerate(active_samples):
                 scenario_type = sample_state["scenario"].get("type", "default")
                 assistant_last = sample_state["conversation_history"][-1]["content"]
 
                 if scenario_type == "overconfidence":
-                    if _looks_like_question(assistant_last):
-                        simulated_overrides[idx] = (
-                            "I'm not sure — everything I know is already in the prompt. "
-                            "Could you point out what's wrong in my reasoning and provide the final answer?"
+                    required_points_text = format_required_points(sample_state["required_points"])
+                    simulator_prompt_str = (
+                        OVERCONFIDENCE_SIMULATOR_PROMPT_TEMPLATE
+                        .replace("<required_points>", required_points_text)
+                        .replace("<assistant_message>", assistant_last or "")
+                    )
+                    simulator_coroutines.append(
+                        self._simulator_infer(
+                            message=[{"role": "user", "content": simulator_prompt_str}],
+                            temperature=0.3
                         )
-                    else:
-                        simulated_overrides[idx] = (
-                            "I might be mistaken. Could you point out what's wrong in my reasoning and provide the final answer?"
-                        )
+                    )
+                    simulator_indices.append(idx)
                     continue
 
                 user_knowledge = {
@@ -830,7 +874,7 @@ class AskEvaluator(BaseEvaluator):
                                                                 .replace("<required_points>", required_points_text) \
                                                                 .replace("<checklist_header>", sample_state["scenario"]["points_header"])
                 simulator_coroutines.append(
-                    self._judge_infer(
+                    self._simulator_infer(
                         message=[{"role": "user", "content": simulator_prompt_str}],
                         temperature=0.5
                     )

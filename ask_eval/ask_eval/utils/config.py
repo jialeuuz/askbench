@@ -25,7 +25,7 @@ def load_merged_config(base_config_path: str, task_config_path: str = None) -> c
     
     # 用基础配置覆盖任务配置
     for section in base_config.sections():
-        if section == "evaluatorconfig":      # 评估器配置，缺省时沿用基础配置
+        if section in {"evaluatorconfig", "simulatorconfig"}:      # 评估/仿人配置，缺省时沿用基础配置
             if not config.has_section(section):
                 config.add_section(section)
             for key, value in base_config.items(section):
@@ -164,6 +164,26 @@ def get_evaluator_config(config: configparser.ConfigParser) -> Dict:
         eval_config['timeout'] = config.getint("evaluatorconfig", "time_out")
 
     return eval_config
+
+def get_simulator_config(config: configparser.ConfigParser) -> Dict:
+    """获取仿人用户（simulator）的配置；缺省时可复用 evaluatorconfig。"""
+    param_specs = {
+        "model_type": ("str", None),
+        "api_type": ("str", None),
+        "api_url": ("str", None),
+        "sk_token": ("str", "none"),
+        "timeout": ("int", 600),
+        "system_prompt": ("str", None),
+        "model_name": ("str", None),
+        "temperature": ("float", 0.3),
+        "max_new_tokens": ("int", 1024),
+        "top_p": ("float", 1.0),
+        "max_concurrent": ("int", 10),
+    }
+    sim_config = get_section_config(config, "simulatorconfig", param_specs)
+    if config.has_option("simulatorconfig", "time_out"):
+        sim_config["timeout"] = config.getint("simulatorconfig", "time_out")
+    return sim_config
 
 def get_charactereval_config(config: configparser.ConfigParser) -> Dict:
     """专为CharacterEval人设评估的配置文件读取"""

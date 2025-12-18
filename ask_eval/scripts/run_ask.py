@@ -3,12 +3,14 @@ import asyncio
 import argparse
 from datetime import datetime
 import configparser
+import inspect
 
 from ask_eval.utils.config import (
     get_model_config, 
     get_generate_config, 
     get_path_config, 
-    get_evaluator_config
+    get_evaluator_config,
+    get_simulator_config
 )
 from ask_eval.utils.model_factory import create_model
 from ask_eval.data.data_map import LOADER_MAP
@@ -54,6 +56,16 @@ async def run_ask_evaluation(config):
     print("正在创建Judge模型 (兼任仲裁、评估、仿人角色)...")
     judge_model = create_model(evaluator_config, evaluator_config)
 
+    # 3.1 创建 Simulator 模型（可选，默认复用 evaluatorconfig）
+    if config.has_section("simulatorconfig"):
+        simulator_config = get_simulator_config(config)
+        print("正在创建Simulator模型 (用于仿人用户回合生成)...")
+        simulator_model = create_model(simulator_config, simulator_config)
+    else:
+        simulator_config = evaluator_config
+        print("未配置 [simulatorconfig]，将复用 Judge 模型作为 Simulator...")
+        simulator_model = judge_model
+
     # 4. 加载数据
     print(f"正在使用 LOADER_MAP 中的 '{evalset_name}' 加载器...")
     loader_class = LOADER_MAP.get(evalset_name)
@@ -74,10 +86,18 @@ async def run_ask_evaluation(config):
         raise ValueError(f"在 EVALUATOR_MAP 中未找到 '{evalset_name}' 的评测器。")
         
     evaluator = evaluator_class(
-        model=tested_model,
-        eval_config=generate_config,
-        judge_model=judge_model,
-        judge_config=evaluator_config
+        **{
+            k: v
+            for k, v in {
+                "model": tested_model,
+                "eval_config": generate_config,
+                "judge_model": judge_model,
+                "judge_config": evaluator_config,
+                "simulator_model": simulator_model,
+                "simulator_config": simulator_config,
+            }.items()
+            if k in inspect.signature(evaluator_class.__init__).parameters
+        }
     )
 
     # 记录开始时间
