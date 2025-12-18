@@ -6,7 +6,10 @@ from math import isclose
 from sympy import N, simplify
 from sympy.parsing.latex import parse_latex
 from sympy.parsing.sympy_parser import parse_expr
-from latex2sympy2 import latex2sympy
+try:
+    from latex2sympy2 import latex2sympy
+except Exception:
+    latex2sympy = None
 
 # units mainly from MathQA
 unit_texts = [
@@ -626,7 +629,10 @@ def math_equal(
 
 def symbolic_equal(a, b):
     def _parse(s):
-        for f in [parse_latex, parse_expr, latex2sympy]:
+        parsers = [parse_latex, parse_expr]
+        if latex2sympy is not None:
+            parsers.append(latex2sympy)
+        for f in parsers:
             try:
                 return f(s.replace("\\\\", "\\"))
             except:

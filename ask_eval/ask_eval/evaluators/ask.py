@@ -374,6 +374,8 @@ AGGREGATED_SCORE_TASKS = {
     "ask_overconfidence",
     "ask_overconfidence_math500",
     "ask_overconfidence_medqa",
+    "ask_overconfidence_gpqa",
+    "ask_overconfidence_bbh",
     "quest_bench",
 }
 

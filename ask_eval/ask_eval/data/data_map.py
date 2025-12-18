@@ -9,6 +9,8 @@ LOADER_MAP = {
     "ask_overconfidence":JsonlLoader,
     "ask_overconfidence_math500":JsonlLoader,
     "ask_overconfidence_medqa":JsonlLoader,
+    "ask_overconfidence_gpqa":JsonlLoader,
+    "ask_overconfidence_bbh":JsonlLoader,
     "ask_mind":JsonlLoader,
     "ask_lone":JsonlLoader,
     "ask_lone_bbhde":JsonlLoader,

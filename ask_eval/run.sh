@@ -20,13 +20,11 @@ MODEL_NAME="azure-gpt-4_1"
 # API_URL="http://10.80.12.180:8012/v1"
 # MODEL_NAME="default"
 # [必需] 逗号分隔的任务列表
-# ask_lone_math500de,ask_lone_medqade,ask_lone_gpqade,ask_lone_bbhde
 # math500,medqa,gpqa,bbh
-# math500_de,medqa_de
 # quest_bench,in3_interaction
-# ask_mind (四个 ask_mind 子集各采样100条，共400)
+# ask_mind,ask_overconfidence (四个子集各采样100条，共400)
 # ask_mind_math500de,ask_mind_medqade,ask_mind_gpqade,ask_mind_bbhde
-# ask_overconfidence_math500,ask_overconfidence_medqa
+# ask_overconfidence_math500,ask_overconfidence_medqa,ask_overconfidence_gpqa,ask_overconfidence_bbh
 # healthbench
 TASKS="healthbench"
 # [可选] 手动指定结果保存目录。若不指定，将根据模型和任务自动生成。

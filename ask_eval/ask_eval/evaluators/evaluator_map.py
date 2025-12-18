@@ -21,6 +21,8 @@ EVALUATOR_MAP = {
     "ask_overconfidence":AskEvaluator,
     "ask_overconfidence_math500":AskEvaluator,
     "ask_overconfidence_medqa":AskEvaluator,
+    "ask_overconfidence_gpqa":AskEvaluator,
+    "ask_overconfidence_bbh":AskEvaluator,
     "ask_mind":AskEvaluator,
     "ask_mind_math500de":AskEvaluator,
     "ask_mind_medqade":AskEvaluator,

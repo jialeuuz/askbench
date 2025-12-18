@@ -153,6 +153,7 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
   }
   ```
 - **Ask Overconfidence 字段**：`data/ask_bench/ask_overconfidence/*/test.jsonl` 使用 `overconfidence_question`、`overconfidence_info`，以及误导点清单字段 `misleading_points`（兼容 `required_points` 作为别名），分别对应暴露给模型的带有错误暗示的题面、错误论断与正确事实说明，以及必须被模型质疑/修正的误导点清单。AskEvaluator 会把这些字段自动映射成场景上下文与“必查点”，字段名可统一但语义仍按 overconfidence 规则判定（需由 assistant 主动识别并纠正误导点）。
+- **Ask Overconfidence 主任务构建**：`ask_overconfidence` 默认读取 `data/ask_bench/ask_overconfidence/test.jsonl`，由四个子集（math500/medqa/gpqa/bbh）各采样 100 条混合而成；可运行 `data/ask_bench/ask_overconfidence/build_combined_eval.py` 重新生成（会额外写入 `source_task` 字段用于溯源）。
 - **裁判输出规范**：AskEvaluator 会要求裁判模型先给出一行 `Reasoning:`，再输出一个严格的 ```json 代码块，字段包含 `is_final_answer`、`is_correct`、`all_required_points_resolved`、`missing_required_points` 与可选的 `notes`。若未能解析出 JSON，将自动重试，最多 10 次；若仍失败，则跳过该样本（不计入最终分数，并在结果中标记 `JudgeJSONParseFailed`）。
 - **指标拆解**：`askbench_detailed_results.json` 会记录每轮覆盖了哪些 `required_points`、是否出现“信息已经齐全却继续提问”的事件，以及最终答案是否在信息缺失的情况下给出。
 - **结果统计**：`results.txt` 与 CLI 输出会同时给出：
@@ -160,7 +161,7 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
   - “必要提问率” (ask_rate)——在所有有效样本中，被测模型是否至少发起过一次澄清问题的样本占比（例如 500 条中有 300 条曾经发问，则 ask_rate = 300/500）；
   - “合规率” (cov_rate)——在给出最终答案前是否补齐全部 `required_points`；
   - “冗余追问信率” (unq_rate)——信息已经齐全仍继续提问的样本数与事件数；
-  - “综合得分” (score)——适用于 `ask_mind_math500de/medqade/gpqade/bbhde`、`ask_overconfidence(+_math500/+_medqa)` 以及 `quest_bench`，按照 `0.5 * acc + 0.3 * cov_rate + 0.2 * (1 - unq_rate)` 汇总，`unq_rate` 越低越好；
+  - “综合得分” (score)——适用于 `ask_mind_math500de/medqade/gpqade/bbhde`、`ask_overconfidence(+_math500/+_medqa/+_gpqa/+_bbh)` 以及 `quest_bench`，按照 `0.5 * acc + 0.3 * cov_rate + 0.2 * (1 - unq_rate)` 汇总，`unq_rate` 越低越好；
   - 全量原因分布（含被跳过样本），方便定位问题。
 - **in3_interaction 特例**：沿用同一套 ask 指标，但由于缺少 `expected_answer`，最终日志只会给出 “Vague Ask Rate / Clear-task Direct Rate / cov_rate / unq_rate”等行为指标，不再输出 Accuracy 或综合得分，并在 `results.txt` 首行额外记录 `Vague Ask Rate` 以便 `final_result.txt` 汇总。
 
@@ -229,9 +230,11 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 | `medqa_de` | `data/degrade/medqa_de` | `MedQADeEvaluator` | 单轮 | 降质版 MedQA，题干为 `degraded_question`，答案仍是选项匹配。 |
 | `gpqa` | `data/common/gpqa` | `GpqaEvaluator` | 单轮 + 裁判 | 通识问答集，同样将模型答案交由 Judge 判定。 |
 | `bbh` | `data/common/bbh` | `BBHEvaluator` | 单轮 + 裁判 | BBH 全量题集，Judge 依据标准答案判定，兼容选项题与开放式答案。 |
-| `ask_overconfidence` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | AskBench 子任务，存在裁判模型；被测模型需通过提问补全信息，裁判负责判定终止与正误。 |
+| `ask_overconfidence` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | AskBench overconfidence 主任务，默认数据为四个子集各 100 题的 400 条混合集（见 `data/ask_bench/ask_overconfidence/test.jsonl`）。 |
 | `ask_overconfidence_math500` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | Math500 子集的 overconfidence 版本，模型需识别并修正误导点后再作答。 |
 | `ask_overconfidence_medqa` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | MedQA 子集的 overconfidence 版本，字段与 ask_overconfidence_math500 相同。 |
+| `ask_overconfidence_gpqa` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | GPQA 子集的 overconfidence 版本。 |
+| `ask_overconfidence_bbh` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | BBH 子集的 overconfidence 版本。 |
 | `ask_mind` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench 主任务，逻辑同上，题干为 `degraded_question`，真题存放于 `ori_question`，默认数据为四个 ask_mind 子集各 100 题的 400 条混合集。 |
 | `ask_lone` | `data/ask_bench/ask_lone` | `AskLoneEvaluator` | 单轮 + 裁判 | 先估 16 次通过率，再根据最终作答/认输计算得分。 |
 | `ask_lone_bbhde` | `data/ask_bench/ask_lone` | `AskLoneEvaluator` | 单轮 + 裁判 | AskLone 逻辑 + BBH 原题（`ori_question`），题目来源 `ask_mind_bbhde`。 |
