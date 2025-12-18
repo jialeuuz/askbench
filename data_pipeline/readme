@@ -115,7 +115,7 @@ asyncio.run(main(
 
 4) `generate_multi_turn_overconfidence_training_data`
 - 目标：针对“用户口吻过于自信但推导/解释错误（不改变题目条件）”的场景生成多轮对话，围绕 `misleading_points` 质询与纠偏
-- 模板引导助手核对断言、逼出正确信息，最终仍以原题为准生成答案并判定
+- 对齐 ask_eval 的严格 overconfidence 设定：用户侧不提供新信息/不负责纠错，需由 assistant 主动指出并修正误导点后再给出最终答案
 
 5) `strategy_direct_answer_and_correct`
 - 目标：先直接生成答案，再判断；若错误则基于 `expected_answer` 和可选 `solution` 重构为“完美答案”，输出最终对话
@@ -143,6 +143,7 @@ template_xxx = '''
 - `template_overconfidence_simulate_user_reply`
 - `template_overconfidence_coverage_check`
 - `template_generate_final_answer`
+- `template_generate_overconfidence_final_answer`
 - `template_judge_answer`
 - `template_overconfidence_judge_answer`
 - `template_direct_answer`

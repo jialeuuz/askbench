@@ -297,7 +297,8 @@ SCENARIO_FIELD_SPECS = [
         "type": "missing_info",
         "question_key": "degraded_question",
         "info_key": "degraded_info",
-        "points_key": "required_points",
+        # Canonical checklist field name for missing-info scenarios.
+        "points_keys": ["required_points"],
         "question_header": "Degraded question seen by the assistant",
         "info_header": "Why critical information is missing",
         "points_header": "Required clarification points (must be obtained before answering)"
@@ -306,7 +307,9 @@ SCENARIO_FIELD_SPECS = [
         "type": "overconfidence",
         "question_key": "overconfidence_question",
         "info_key": "overconfidence_info",
-        "points_key": "misleading_points",
+        # Historical name is `misleading_points`; allow `required_points` as an alias so
+        # AskBench-style datasets can be schema-unified without changing evaluation logic.
+        "points_keys": ["misleading_points", "required_points"],
         "question_header": "Overconfidence prompt shown to the assistant",
         "info_header": "Why the overconfident statements are misleading",
         "points_header": "Misleading claims that must be addressed before answering"
@@ -320,7 +323,12 @@ def prepare_scenario_fields(sample_data: Dict[str, Any]) -> Dict[str, Any]:
         question_text = sample_data.get(spec["question_key"])
         if question_text:
             info_text = sample_data.get(spec["info_key"], "")
-            points_raw = sample_data.get(spec["points_key"]) or []
+            points_raw: Any = []
+            points_keys = spec.get("points_keys") or []
+            for key in points_keys:
+                if key in sample_data:
+                    points_raw = sample_data.get(key) or []
+                    break
             if isinstance(points_raw, list):
                 points_list = [str(item) for item in points_raw]
             elif points_raw:

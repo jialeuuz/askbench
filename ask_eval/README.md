@@ -152,7 +152,7 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
     ]
   }
   ```
-- **Ask Overconfidence 字段**：`data/ask_bench/ask_overconfidence/*/test.jsonl` 使用 `overconfidence_question`、`overconfidence_info`、`misleading_points`，分别对应暴露给模型的带有错误暗示的题面、错误论断与正确事实说明，以及必须被模型质疑/修正的误导点清单。AskEvaluator 会把这些字段自动映射成场景上下文与“必查点”，逻辑与 `required_points` 一致。
+- **Ask Overconfidence 字段**：`data/ask_bench/ask_overconfidence/*/test.jsonl` 使用 `overconfidence_question`、`overconfidence_info`，以及误导点清单字段 `misleading_points`（兼容 `required_points` 作为别名），分别对应暴露给模型的带有错误暗示的题面、错误论断与正确事实说明，以及必须被模型质疑/修正的误导点清单。AskEvaluator 会把这些字段自动映射成场景上下文与“必查点”，字段名可统一但语义仍按 overconfidence 规则判定（需由 assistant 主动识别并纠正误导点）。
 - **裁判输出规范**：AskEvaluator 会要求裁判模型先给出一行 `Reasoning:`，再输出一个严格的 ```json 代码块，字段包含 `is_final_answer`、`is_correct`、`all_required_points_resolved`、`missing_required_points` 与可选的 `notes`。若未能解析出 JSON，将自动重试，最多 10 次；若仍失败，则跳过该样本（不计入最终分数，并在结果中标记 `JudgeJSONParseFailed`）。
 - **指标拆解**：`askbench_detailed_results.json` 会记录每轮覆盖了哪些 `required_points`、是否出现“信息已经齐全却继续提问”的事件，以及最终答案是否在信息缺失的情况下给出。
 - **结果统计**：`results.txt` 与 CLI 输出会同时给出：

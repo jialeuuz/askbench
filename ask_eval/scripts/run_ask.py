@@ -65,7 +65,7 @@ async def run_ask_evaluation(config):
     examples = loader.load_data()
     
     print(f"已加载 {len(examples)} 个评测样本。")
-    print("数据格式要求: 至少包含 'ori_question'、'expected_answer'，以及任务自带的场景字段（例如 'degraded_question'+'degraded_info'+'required_points' 或 'overconfidence_question'+'overconfidence_info'+'misleading_points'）。")
+    print("数据格式要求: 至少包含 'ori_question'、'expected_answer'，以及任务自带的场景字段（例如 'degraded_question'+'degraded_info'+'required_points'；或 'overconfidence_question'+'overconfidence_info'+('misleading_points'/'required_points')）。")
 
     # 5. 实例化评测器
     print(f"正在使用 EVALUATOR_MAP 中的 '{evalset_name}' 评测器...")

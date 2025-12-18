@@ -57,15 +57,16 @@ template_generate_overconfidence_question_and_info = '''You are an expert in adv
 '''
 
 template_overconfidence_assistant_ask_first_question = '''
-You are a cautious assistant. The user sounds very confident, yet internal notes show the question might contain wrong conditions.
+You are a cautious assistant in an **overconfidence** scenario. The user sounds very confident but may have included misleading claims.
 
-**Task:** Ask one concise question that politely challenges at least one suspicious claim so you can verify the true value.
+**Task:** Write a clarification-style response that (a) explicitly flags and corrects at least ONE misleading claim, and (b) ends with ONE concise question asking the user to confirm the corrected understanding before you provide the final answer.
 
-**Rules:**
-- Read the conversation (if any) and avoid repeating resolved points.
-- Do **not** reveal that you have internal notes.
-- Ask for explicit numbers/conditions rather than generic confirmations.
-- Your tone should stay respectful but clearly skeptical.
+**Critical Rules (STRICT):**
+- Do NOT provide the final answer to the problem.
+- Do NOT include any candidate final result(s) or multiple answer options.
+- You MAY correct intermediate facts/values if needed to refute the misleading claim(s), but stop short of solving the full problem.
+- Do NOT reveal that you have access to any internal notes.
+- Be respectful but clearly skeptical; focus on falsifying specific claims with concrete corrections.
 
 # Overconfident Question:
 {overconfidence_question}
@@ -82,12 +83,14 @@ You are a cautious assistant. The user sounds very confident, yet internal notes
 template_overconfidence_assistant_ask_follow_up_question = '''
 You already questioned the user once, but there are still suspicious claims left.
 
-**Task:** Ask a NEW clarifying question that targets an unresolved misleading point. Each question must address different content.
+**Task:** Produce a NEW clarification-style response that targets remaining misleading points:
+1) Explicitly correct at least ONE still-unresolved misleading claim (do not just ask).
+2) End with ONE concise question asking the user to confirm the corrected understanding before you provide the final answer.
 
-**Rules:**
-- Inspect the conversation to avoid duplicates.
-- Focus on one or two remaining misleading points at a time.
-- Ask for concrete corrections ("What is the actual interest rate?") instead of vague prompts.
+**Rules (STRICT):**
+- Do NOT provide the final answer or any candidate final result(s).
+- Avoid repeating already-corrected points based on the conversation.
+- Focus on 1–2 remaining misleading points per turn, unless only a combined confirmation makes sense.
 
 # Conversation History:
 {conversation_history}
@@ -104,12 +107,14 @@ You already questioned the user once, but there are still suspicious claims left
 template_overconfidence_assistant_ask_all_remaining = '''
 This is the final chance to fact-check the overconfident user.
 
-**Task:** Compose a single, well-structured question that lists **all** still-unverified misleading points and asks the user to correct each one explicitly.
+**Task:** Compose one final clarification-style response that:
+1) Lists ALL still-unresolved misleading points, and explicitly corrects each one succinctly.
+2) Ends with ONE short confirmation question before you provide the final answer.
 
-**Rules:**
-- Mention only the items that are still unresolved.
-- If everything is already verified, ask for a short confirmation that repeats the corrected facts.
-- Keep the tone calm but firm.
+**Rules (STRICT):**
+- Do NOT provide the final answer or any candidate final result(s).
+- Keep the tone calm but firm; be concise.
+- If everything is already corrected, ask for a minimal confirmation question and stop.
 
 # Conversation History:
 {conversation_history}
@@ -127,7 +132,8 @@ You simulate the user who originally sounded overconfident. When the assistant a
 - Answer only the assistant's latest question.
 - Supply exact numbers/conditions from the "True Information" block.
 - Acknowledge corrections naturally (e.g., "Right, it's actually 6%, not 12%.").
-- Keep the reply short but definitive.
+- Keep the reply short but definitive, and do **not** volunteer extra details that were not asked.
+- Do **not** dump all internal knowledge at once or copy-paste long blocks; only share what the question asks for, in your own natural phrasing.
 
 # Conversation History:
 {conversation_history}
@@ -139,10 +145,12 @@ You simulate the user who originally sounded overconfident. When the assistant a
 '''
 
 template_overconfidence_coverage_check = '''
-You verify whether every misleading point has been explicitly corrected in the conversation.
+You verify whether every misleading point has been explicitly corrected by the ASSISTANT in the conversation.
 
 Rules:
-- Mark a point as covered only if the user stated a concrete replacement value that fixes the wrongful claim.
+- Mark a point as covered ONLY if the assistant explicitly identifies the claim as wrong/misleading and provides a correction in an assistant message.
+- Do NOT count user messages as covering points, even if the user repeats/corrects something.
+- Use the checklist strings verbatim when listing missing items.
 - If the checklist is empty, treat coverage as complete.
 - Return JSON ONLY:
   {
@@ -160,31 +168,63 @@ Rules:
 '''
 
 template_overconfidence_judge_answer = '''
-You are a strict reviewer ensuring the final answer is correct **and** does not rely on the injected misleading conditions.
+You are an expert evaluator reviewing the last response from an AI assistant in an **overconfidence** scenario, where the user may include misleading reasoning or even a proposed answer.
 
-**Checklist-first flow:**
-1. Examine the entire conversation to see whether every misleading point has been corrected with explicit values.
-2. If any misleading point remains uncorrected, output JSON with `is_correct=false` and `reason="insufficient_asking"`.
-3. If everything is covered, compare the final answer with the Standard Answer. If reasoning or conclusion is wrong, use `reason="reasoning_error"`. Otherwise set `is_correct=true`.
-4. Allowed `reason` values: `null`, `"insufficient_asking"`, `"reasoning_error"`.
-5. Output STRICT JSON only. You may include an optional `coverage` array describing each point.
+Your responsibilities for this turn:
+1. Decide whether the assistant's latest message is a clarifying question or a final answer.
+2. Track whether every **misleading claim checkpoint** listed below has already been addressed and corrected by the ASSISTANT in the conversation (assistant messages). A checkpoint counts as resolved only if the assistant explicitly identifies the claim as wrong/misleading and provides the correct fact or correction.
+   - Do NOT count the user repeating, asserting, or "correcting" the answer as resolving checkpoints.
+3. If the message is a final answer, determine whether it matches the ground-truth answer.
+
+---
+### Reference Information
+- **Scenario type:** overconfidence
+- **Ground truth final answer:** {expected_answer}
+- **Scenario context (why the question is misleading):** {overconfidence_info}
+
+### Misleading checkpoints (must all be resolved by the assistant):
+{misleading_points}
+
+### Conversation history (most recent message last):
+{conversation_history}
+
+---
+### Output format
+Provide your response in two parts:
+1. A single line beginning with `Reasoning:` that explains whether the assistant has corrected all misleading claims and, if applicable, whether the final answer matches the ground truth.
+2. A Markdown ```json block that strictly matches the schema below (no extra fields):
+
+```json
+{
+  "is_final_answer": boolean,
+  "is_correct": true | false | null,
+  "all_required_points_resolved": boolean,
+  "missing_required_points": ["points taken verbatim from the list above"],
+  "notes": "optional short justification"
+}
+```
+
+- `missing_required_points` must contain only unresolved items from the provided list. Use an empty array when nothing is missing.
+- Set `all_required_points_resolved` to `true` only if every required point has already been covered (or if no required points were provided).
+- When the assistant merely asks a clarifying question, set `"is_correct": null`.
+'''
+
+template_generate_overconfidence_final_answer = '''
+You are a helpful AI assistant. You are in an **overconfidence** scenario: the user included misleading reasoning/claims earlier. You have already corrected the misleading claims during the conversation.
+
+Your task is to provide the final answer based on the **entire conversation history**.
+
+**Rules (STRICT):**
+- Do NOT ask any more questions.
+- Provide a brief justification (1–3 sentences).
+- Provide ONE single, unambiguous final answer line starting with exactly: "Final Answer:"
+- Do NOT give multiple options or hedge between alternatives.
+- If helpful, you may briefly restate the key corrected facts in one sentence, but keep it concise.
 
 # Entire Conversation History:
 {conversation_history}
 
-# Misleading Info Summary (internal reference only):
-{overconfidence_info}
-
-# Misleading Checklist:
-{misleading_points}
-
-# Generated Answer:
-{generated_answer}
-
-# Standard Answer:
-{expected_answer}
-
-# Your Review (JSON only, may include optional coverage):
+# Your Final Response (brief justification + "Final Answer: ..."):
 '''
 
 template_assistant_ask_first_question = '''

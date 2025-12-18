@@ -72,12 +72,27 @@ def _parse_judge_json_response(raw_response: str) -> Tuple[Optional[Dict[str, An
         if not json_match: raise ValueError("在 Judge 回复中未找到JSON对象")
         json_string = json_match.group(0)
         parsed_json = json.loads(json_string)
-        if 'is_correct' in parsed_json and 'reason' in parsed_json:
-            valid_reasons = [None, 'insufficient_asking', 'reasoning_error']
-            if parsed_json.get('reason') not in valid_reasons:
-                raise ValueError(f"无效的 reason 值: '{parsed_json.get('reason')}'. 只允许 {valid_reasons}")
-            return parsed_json, None
-        raise KeyError("JSON对象中缺少 'is_correct' 或 'reason' 键")
+        if 'is_correct' not in parsed_json:
+            raise KeyError("JSON对象中缺少 'is_correct' 键")
+
+        # 兼容新版 overconfidence 裁判输出（无 reason 字段，但包含覆盖信息）
+        valid_reasons = [None, 'insufficient_asking', 'reasoning_error']
+        reason = parsed_json.get('reason')
+        if reason is None and any(k in parsed_json for k in ('missing_required_points', 'all_required_points_resolved', 'is_final_answer')):
+            if parsed_json.get('is_correct') is True:
+                reason = None
+            elif parsed_json.get('all_required_points_resolved') is False:
+                reason = 'insufficient_asking'
+            elif parsed_json.get('is_correct') is False:
+                reason = 'reasoning_error'
+            else:
+                # is_correct 为空或其他情况，视为未满足覆盖
+                reason = 'insufficient_asking'
+            parsed_json['reason'] = reason
+
+        if parsed_json.get('reason') not in valid_reasons:
+            raise ValueError(f"无效的 reason 值: '{parsed_json.get('reason')}'. 只允许 {valid_reasons}")
+        return parsed_json, None
     except (json.JSONDecodeError, ValueError, KeyError) as e:
         return None, e
 
@@ -553,7 +568,7 @@ async def generate_multi_turn_overconfidence_training_data(
         'ask_all': 'template_overconfidence_assistant_ask_all_remaining',
         'simulate_user': 'template_overconfidence_simulate_user_reply',
         'coverage_check': 'template_overconfidence_coverage_check',
-        'generate_answer': 'template_generate_final_answer',
+        'generate_answer': 'template_generate_overconfidence_final_answer',
         'judge_answer': 'template_overconfidence_judge_answer',
         'force_correct': 'template_force_correct_answer',
     }
