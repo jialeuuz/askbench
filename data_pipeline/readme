@@ -123,6 +123,23 @@ asyncio.run(main(
 
 
 ## Prompt 模板
+本 pipeline 的多轮「用户模拟 / 裁判」Prompt 以 `ask_eval` 的 AskEvaluator **非严格模式（STRICT_MODE=0）** 为准，确保训练数据构造逻辑与评测逻辑一致：
+- missing_info（degraded）：`template_simulate_user_reply` / `template_judge_answer`
+- overconfidence：`template_overconfidence_simulate_user_reply` / `template_overconfidence_judge_answer`
+
+对齐参考见：`ask_eval/ask_eval/evaluators/ask.py` 中的 `SIMULATOR_PROMPT_TEMPLATE`、`OVERCONFIDENCE_SIMULATOR_PROMPT_TEMPLATE`、`ARBITER_EVALUATOR_PROMPT_TEMPLATE`、`ARBITER_EVALUATOR_PROMPT_TEMPLATE_OVERCONFIDENCE`。
+
+### 模板可用变量（除样本字段外）
+除样本本身字段外，`strategies._run_batch_step_with_retry()` 会自动注入一些便捷字段，你可以在 `prompts.txt` 里直接使用：
+- `conversation_history_text`：把 `conversation_history` 格式化为多行 `role: content` 文本
+- `assistant_message`：对话中最后一条 assistant 消息（overconfidence simulator 使用）
+- `assistant_question`：同 `assistant_message`（按“问题”使用，missing_info simulator 使用）
+- `scenario_question`：优先 `overconfidence_question` → `degraded_question` → `ori_question`
+- `scenario_context`：优先 `overconfidence_info` → `degraded_info` → `""`
+- `checklist_header`：checklist 标题（missing_info / overconfidence 两套，和 `ask_eval` 一致）
+- `required_points_text`：把 checklist 点格式化为编号列表（为空时会给默认提示）
+- `user_internal_knowledge`：JSON 字符串（包含 `my_real_question` / `scenario_context` / `scenario_type` / `checklist_header` / `checklist_points`）
+
 模板统一放在 `prompts.txt`，格式：
 ```
 template_xxx = '''
