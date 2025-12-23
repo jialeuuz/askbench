@@ -8,6 +8,85 @@ from post_api import CustomAPI
 # ---------------------------------------------------------------------------
 # 辅助函数
 # ---------------------------------------------------------------------------
+def _coerce_points_list(points: Any) -> List[str]:
+    if points is None:
+        return []
+    if isinstance(points, list):
+        cleaned: List[str] = []
+        for entry in points:
+            if entry is None:
+                continue
+            text = str(entry).strip()
+            if text:
+                cleaned.append(text)
+        return cleaned
+    if isinstance(points, str):
+        stripped = points.strip()
+        if not stripped:
+            return []
+        if stripped.startswith("[") and stripped.endswith("]"):
+            try:
+                loaded = json.loads(stripped)
+                if isinstance(loaded, list):
+                    return _coerce_points_list(loaded)
+            except Exception:
+                pass
+        return [stripped]
+    return [str(points).strip()]
+
+
+def _format_required_points_text(points: Any) -> str:
+    points_list = _coerce_points_list(points)
+    if not points_list:
+        return "- None provided (the assistant may answer once confident)."
+    return "\n".join(f"{idx}. {point}" for idx, point in enumerate(points_list, start=1))
+
+
+def _format_conversation_history_text(conversation_history: Any) -> str:
+    if conversation_history is None:
+        return ""
+    if isinstance(conversation_history, str):
+        return conversation_history.strip()
+    if not isinstance(conversation_history, list):
+        return str(conversation_history).strip()
+    lines: List[str] = []
+    for msg in conversation_history:
+        if not isinstance(msg, dict):
+            lines.append(str(msg))
+            continue
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        lines.append(f"{role}: {content}")
+    return "\n".join(lines).strip()
+
+
+def _extract_last_assistant_message(conversation_history: Any) -> str:
+    if not isinstance(conversation_history, list):
+        return ""
+    for msg in reversed(conversation_history):
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            return str(msg.get("content", "")).strip()
+    return ""
+
+
+def _build_user_internal_knowledge(
+    item: Dict[str, Any],
+    *,
+    scenario_type: str,
+    scenario_context: str,
+    checklist_header: str,
+    checklist_points: Any,
+) -> str:
+    user_knowledge = {
+        "my_real_question": item.get("ori_question", ""),
+        "scenario_context": scenario_context,
+        "scenario_type": scenario_type,
+        "checklist_header": checklist_header,
+        "checklist_points": _coerce_points_list(checklist_points),
+    }
+    return json.dumps(user_knowledge, indent=2, ensure_ascii=False)
+
+
 def _safe_format(template: str, variables: Dict[str, Any]) -> str:
     """仅替换已知占位符 {key}，保留其他花括号为字面量。
     这样可避免模板中的 JSON 示例触发 str.format 的 KeyError。
@@ -157,9 +236,56 @@ async def _run_batch_step_with_retry(
         valid_indices_for_batch = []
         for index in item_indices_to_process:
             try:
-                format_args = {key: items[index][key] for key in prompt_format_keys}
-                if 'conversation_history' in format_args:
+                item = items[index]
+                format_args = {key: item[key] for key in prompt_format_keys}
+
+                raw_conversation_history = item.get("conversation_history")
+                if isinstance(raw_conversation_history, list):
+                    format_args.setdefault(
+                        "conversation_history_text",
+                        _format_conversation_history_text(raw_conversation_history),
+                    )
+                    assistant_message = _extract_last_assistant_message(raw_conversation_history)
+                    format_args.setdefault("assistant_message", assistant_message)
+                    format_args.setdefault("assistant_question", assistant_message)
+                    if "conversation_history" in format_args:
+                        format_args["conversation_history"] = json.dumps(raw_conversation_history, ensure_ascii=False, indent=2)
+                if 'conversation_history' in format_args and not isinstance(format_args['conversation_history'], str):
                     format_args['conversation_history'] = json.dumps(format_args['conversation_history'], ensure_ascii=False, indent=2)
+
+                scenario_question = (
+                    item.get("overconfidence_question")
+                    or item.get("degraded_question")
+                    or item.get("ori_question", "")
+                )
+                scenario_context = item.get("overconfidence_info") or item.get("degraded_info") or ""
+                is_overconfidence = bool(item.get("overconfidence_question"))
+                checklist_header = (
+                    "Misleading claims that must be addressed before answering"
+                    if is_overconfidence
+                    else "Required clarification points (must be obtained before answering)"
+                )
+                if is_overconfidence:
+                    checklist_points = item.get("misleading_points") or item.get("required_points")
+                else:
+                    checklist_points = item.get("required_points")
+
+                format_args.setdefault("ori_question", item.get("ori_question", ""))
+                format_args.setdefault("scenario_question", scenario_question or "")
+                format_args.setdefault("scenario_context", scenario_context or "")
+                format_args.setdefault("checklist_header", checklist_header)
+                format_args.setdefault("required_points_text", _format_required_points_text(checklist_points))
+                format_args.setdefault(
+                    "user_internal_knowledge",
+                    _build_user_internal_knowledge(
+                        item,
+                        scenario_type=("overconfidence" if is_overconfidence else "missing_info"),
+                        scenario_context=scenario_context or "",
+                        checklist_header=checklist_header,
+                        checklist_points=checklist_points,
+                    ),
+                )
+
                 if 'required_points' in format_args and not isinstance(format_args['required_points'], str):
                     try:
                         format_args['required_points'] = json.dumps(format_args['required_points'], ensure_ascii=False, indent=2)

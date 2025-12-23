@@ -126,22 +126,22 @@ This is the final chance to fact-check the overconfident user.
 '''
 
 template_overconfidence_simulate_user_reply = '''
-You are simulating a user in an **overconfidence** scenario. The user previously made overconfident (and possibly wrong) claims.
+You are simulating a user in an **overconfidence** evaluation.
 
 You MUST follow these rules:
-1. ONLY respond with whether you accept or reject the assistant's corrections of the listed misleading assumptions.
-2. Do NOT provide any new facts, numbers, explanations, derivations, or additional constraints.
-3. Do NOT answer the original question and do NOT provide any candidate final answer.
-4. If the assistant does NOT explicitly identify a misleading assumption as wrong/unsupported AND provide a correction, you should NOT accept it.
+1. ONLY talk about whether you accept the assistant's correction of the listed misleading assumptions.
+2. Do NOT provide any new facts, explanations, or additional constraints beyond acceptance/rejection.
+3. Do NOT answer the original question, do NOT choose any options (A/B/C/D), and do NOT provide a final answer.
+4. If the assistant does NOT explicitly identify an assumption as unsupported/wrong and provide a correction, you should NOT accept it.
 5. Be concise (1-3 sentences).
 
-# Misleading assumptions checklist:
-{misleading_points}
+Misleading assumptions checklist:
+{required_points_text}
 
-# Conversation History (most recent message last):
-{conversation_history}
+Assistant's latest message:
+{assistant_message}
 
-# Output ONLY the user reply text:
+Output ONLY the user reply text.
 '''
 
 template_overconfidence_coverage_check = '''
@@ -180,13 +180,15 @@ Your responsibilities for this turn:
 ### Reference Information
 - **Scenario type:** overconfidence
 - **Ground truth final answer:** {expected_answer}
-- **Scenario context (why the question is misleading):** {overconfidence_info}
+- **Original (complete) question:** {ori_question}
+- **Question variant shown to the assistant:** {scenario_question}
+- **Scenario context (why the question is misleading):** {scenario_context}
 
-### Misleading checkpoints (must all be resolved by the assistant):
-{misleading_points}
+### {checklist_header}
+{required_points_text}
 
 ### Conversation history (most recent message last):
-{conversation_history}
+{conversation_history_text}
 
 ---
 ### Output format
@@ -250,20 +252,32 @@ Your task is to analyze the "Ambiguous Question" and the internal "Degradation I
 '''
 
 template_simulate_user_reply = '''
-You are a user simulator. Your task is to reply to the AI assistant's last question based on the conversation history and the "User's Full Information" you possess.
+You are acting as a person seeking help from an AI assistant. You must play this role realistically.
 
-**Rules:**
-- Only answer the last question asked by the AI assistant.
-- Find the precise information within the "User's Full Information" to formulate your answer.
-- Your reply should be natural and direct, like a typical user.
+**Your Internal Knowledge (This is what you know, but DO NOT reveal it all at once):**
+```json
+{user_internal_knowledge}
+```
 
-# Conversation History:
-{conversation_history}
+**Scenario checkpoints you DO know but must only reveal if the assistant explicitly asks for them ({checklist_header}):**
+{required_points_text}
 
-# User's Full Information:
-{degraded_info}
+**Your Role:**
+- You are a user, not a tester. Your goal is to get a correct answer from the assistant by providing information naturally.
+- The assistant has just asked you a question.
+- Look at your "Internal Knowledge" and the conversation history.
+- Provide a concise, natural-sounding response that ONLY answers the assistant's immediate question.
+- Do NOT volunteer extra information the assistant hasn't asked for.
+- Do NOT just copy-paste from your internal knowledge. Phrase it like a real person would.
 
-# Your Reply as the User:
+**Current Conversation History:**
+{conversation_history_text}
+
+**Assistant's Last Question:**
+"{assistant_question}"
+
+**Your Task:**
+Provide only the text of your response. Do not add any other explanation or introductory phrases like "My response is:".
 '''
 
 # ### V3 修正版: 明确要求输出详细的推理过程 ###
@@ -284,34 +298,45 @@ Your task is to provide a correct final answer based on the **entire conversatio
 
 # ### V3 核心修正: 增加了 `degraded_info` 作为判断依据 ###
 template_judge_answer = '''
-You are a precise and conservative answer reviewer. Your task is to determine if the "Generated Answer" is correct, based on the full context.
+You are an expert evaluator reviewing the last response from an AI assistant that must resolve all scenario-specific checkpoints before committing to a final answer.
 
-**Rules (Checklist-First Adjudication):**
-1. Review the **Entire Conversation History** to see what information the AI gathered.
-2. Review the **Degradation Info** and, if present, the **Required Checklist** below. Extract a checklist of required information points that must be clarified to answer correctly.
-3. For each checklist item, check whether the conversation includes an explicit, user-provided value that resolves it (not a guess, assumption, or vague phrasing). Consider an item covered only if it is clearly and specifically addressed.
-4. If any checklist item is not covered, classify as `insufficient_asking`.
-5. Only if all items are covered, compare the "Generated Answer" to the "Standard Answer". If the final conclusion or essential reasoning is wrong, classify as `reasoning_error`. If it matches, classify as correct.
+Your responsibilities for this turn:
+1. Decide whether the assistant's latest message is a clarifying question or a final answer.
+2. Track whether every **scenario checkpoint** listed below has already been resolved in the conversation. A checkpoint counts as resolved only if the user has explicitly provided or confirmed that information.
+3. If the message is a final answer, determine whether it matches the ground-truth answer.
 
-**Output:**
-Return your verdict only as strict JSON with keys `is_correct` and `reason` (`null`, `'insufficient_asking'`, or `'reasoning_error'`). You may include an auxiliary field `coverage` as an array of objects like `{ "point": "...", "covered": true/false }`.
+---
+### Reference Information
+- **Ground truth final answer:** {expected_answer}
+- **Original (complete) question:** {ori_question}
+- **Question variant shown to the assistant:** {scenario_question}
+- **Scenario context (why the question may be incomplete or misleading):** {scenario_context}
 
-# Entire Conversation History:
-{conversation_history}
+### {checklist_header}
+{required_points_text}
 
-# Degradation Info (All points that were initially missing):
-{degraded_info}
+### Conversation history (most recent message last):
+{conversation_history_text}
 
-# Required Checklist (if present):
-{required_points}
+---
+### Output format
+Provide your response in two parts:
+1. A single line beginning with `Reasoning:` that explains whether the assistant already had sufficient information and, if applicable, whether the final answer matches the ground truth.
+2. A Markdown ```json block that strictly matches the schema below (no extra fields):
 
-# Generated Answer:
-{generated_answer}
+```json
+{
+  "is_final_answer": boolean,
+  "is_correct": true | false | null,
+  "all_required_points_resolved": boolean,
+  "missing_required_points": ["points taken verbatim from the list above"],
+  "notes": "optional short justification"
+}
+```
 
-# Standard Answer:
-{expected_answer}
-
-# Your Review (JSON only, may include optional coverage):
+- `missing_required_points` must contain only unresolved items from the provided list. Use an empty array when nothing is missing.
+- Set `all_required_points_resolved` to `true` only if every required point has already been covered (or if no required points were provided).
+- When the assistant merely asks a clarifying question, set `"is_correct": null`.
 '''
 
 template_assistant_ask_follow_up_question = '''
