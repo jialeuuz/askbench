@@ -3,9 +3,7 @@ from ask_eval.data.jsonl import JsonlLoader
 # 数据加载器映射
 LOADER_MAP = {
     "math500": JsonlLoader,
-    "math500_de":JsonlLoader,
     "medqa":JsonlLoader,
-    "medqa_de":JsonlLoader,
     "ask_overconfidence":JsonlLoader,
     "ask_overconfidence_math500":JsonlLoader,
     "ask_overconfidence_medqa":JsonlLoader,

@@ -80,7 +80,7 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
 `ask_eval/data/data_map.py` 将任务名映射到数据加载器（当前均为 `JsonlLoader`），默认读取 `data/<group>/<task>/test.jsonl`。样本结构因任务类型略有区别：
 
 - **数学与常规 QA**：包含 `problem` / `ori_question` 与 `expected_answer`。
-- **降质任务（*_de）**：使用 `degraded_question` 和 `expected_answer`。
+- **带降质题面任务**：使用 `degraded_question` 和 `expected_answer`。
 - **AskBench 系列**：样本包含 `degraded_question`、`ori_question`、`expected_answer`、`degraded_info`，以及 `required_points`（列出必须补齐的关键信息，现已覆盖 ask_mind* 与 quest_bench），用于多轮对话模拟。
 - **in3_interaction**：原始数据只提供 `task`、`vague`、`missing_details` 以及示例交互。评测器会将 `task` 重命名为 `ori_question`/`degraded_question`，把 `missing_details` 中每个元素的 `description` 汇总成 `required_points`，并把整段 `missing_details` 转写成 `degraded_info`。由于没有 `expected_answer`，该基准只衡量澄清问答行为（ask-rate/覆盖率/冗余提问等），不计算 Accuracy。
 - **AskLone 系列**：只使用 `ori_question` 与 `expected_answer`，用于单轮作答与“不会做就承认”评估。
@@ -111,7 +111,6 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
 任务到评估器的绑定由 `ask_eval/evaluators/evaluator_map.EVALUATOR_MAP` 管理。典型实现包括：
 
 - **数学系列**：`MathEvaluator` 提供 LaTeX 归一化、SymPy 化简、数字匹配等能力；`Math500Evaluator` 等实现按需覆写提示与抽取逻辑。
-- **降质数学**：`MathDeEvaluator` 继承通用数学逻辑，但 prompt/字段针对 `degraded_question`。
 - **MedQA / GPQA 等**：各自实现领域裁剪的提取与校验。
 - **AskEvaluator**：多轮对话核心。裁判模型兼任三种角色：判断是否给出最终答案、评估答案正确性、在模型提问后模拟用户回复。评测循环包含：
   1. 被测模型生成下一轮回复（最后一轮会强制输出最终答案）。
@@ -228,9 +227,7 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 | 任务标识 | 数据目录 | 评估器 | 交互模式 | 核心逻辑 |
 | --- | --- | --- | --- | --- |
 | `math500` | `data/common/math500` | `Math500Evaluator` | 单轮 + 裁判 | 单轮作答，由 Judge 根据题干与标准答案判断是否正确，并记录跳过/失败原因。 |
-| `math500_de` | `data/degrade/math500_de` | `Math500DeEvaluator` | 单轮 | 降质版数学题，Prompt 使用 `degraded_question`，答案提取逻辑同 Math500。 |
 | `medqa` | `data/common/medqa` | `MedQAEvaluator` | 单轮 + 裁判 | 单轮多选题，由 Judge 读取题干与参考答案 JSON 判定正误。 |
-| `medqa_de` | `data/degrade/medqa_de` | `MedQADeEvaluator` | 单轮 | 降质版 MedQA，题干为 `degraded_question`，答案仍是选项匹配。 |
 | `gpqa` | `data/common/gpqa` | `GpqaEvaluator` | 单轮 + 裁判 | 通识问答集，同样将模型答案交由 Judge 判定。 |
 | `bbh` | `data/common/bbh` | `BBHEvaluator` | 单轮 + 裁判 | BBH 全量题集，Judge 依据标准答案判定，兼容选项题与开放式答案。 |
 | `ask_overconfidence` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | AskBench overconfidence 主任务，默认数据为四个子集各 100 题的 400 条混合集（见 `data/ask_bench/ask_overconfidence/test.jsonl`）。 |
