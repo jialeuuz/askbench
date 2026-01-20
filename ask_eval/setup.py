@@ -22,6 +22,5 @@ setup(
         "latex2sympy2==1.9.1",
         "accelerate",
         "jsonlines"
-        # 其他依赖...
     ],
 )
