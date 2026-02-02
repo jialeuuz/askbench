@@ -164,6 +164,8 @@ python ask_eval/data/ask_bench/ask_overconfidence/build_combined_eval.py
 
 使用方式是将脚本拷贝到 VERL 的 `verl/utils/reward_score/` 并在 `default_compute_score()` 里注册；judge 端点通过 `API_URLS` / `JUDGE_MODEL_NAME` 配置。更详细的接入步骤见 `reward/readme`，代码细节说明见 `reward/readme_for_ai_zh.md`。
 
+另外提供了已脱敏的训练启动脚本参考（VERL + Ray + DAPO/GRPO）：`reward/train.sh`。
+
 ## 引用
 
 如果你使用了本仓库，请引用论文：

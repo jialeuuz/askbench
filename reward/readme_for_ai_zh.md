@@ -71,3 +71,11 @@ AskOverconfidence（`overconfidence_qa.py`）：
 - `question: str`
 - `context: str`
 - `expected_answer: str`（最终轮目标；为空则回退 `ground_truth`）
+
+### 训练脚本参考
+
+`reward/train.sh` 是已脱敏的训练启动脚本参考，展示了：
+
+- 如何填 `MODEL_PATH` / parquet 数据路径
+- 输出目录与 Ray 临时目录的组织方式
+- 通过追加 CLI 参数传入 Hydra overrides 的方法

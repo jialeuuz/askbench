@@ -164,6 +164,8 @@ The `reward/` directory contains **VERL-compatible** reward functions that imple
 
 These scripts are meant to be copied into VERL (`verl/utils/reward_score/`) and registered in `default_compute_score()`. Configure judge endpoints via `API_URLS` / `JUDGE_MODEL_NAME`. See `reward/readme` for step-by-step integration, and `reward/readme_for_ai.md` for code-level notes.
 
+For a sanitized reference training launcher (VERL + Ray + DAPO/GRPO), see `reward/train.sh`.
+
 ## Citation
 
 If you use this codebase, please cite the paper:

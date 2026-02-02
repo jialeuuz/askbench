@@ -71,3 +71,11 @@ AskOverconfidence (`overconfidence_qa.py`):
 - `question: str`
 - `context: str`
 - `expected_answer: str` (final-turn target; falls back to `ground_truth`)
+
+### Training script reference
+
+`reward/train.sh` is a sanitized reference launcher for our VERL training setup. It shows:
+
+- where to plug in `MODEL_PATH` / data parquet paths
+- how outputs and Ray tmp dirs are organized
+- how to pass additional Hydra overrides via extra CLI args

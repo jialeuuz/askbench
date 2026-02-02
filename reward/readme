@@ -79,3 +79,16 @@ AskOverconfidence expects keys like:
 - `is_final_turn`, `ori_question`, `overconfidence_info`, `misleading_points`, `question`, `context`, `expected_answer`
 
 For code-level details and prompts, see `reward/readme_for_ai.md`.
+
+## 4) Reference training script
+
+`reward/train.sh` is a **sanitized, reference** training launcher based on our paper setup (VERL + Ray + `recipe.dapo.main_dapo`).
+
+It is not expected to run out-of-the-box. You should edit / export:
+
+- `VERL_DIR`: local VERL repo root
+- `MODEL_PATH`: HuggingFace model directory
+- `DATA_TRAIN_PATH`, `DATA_VAL_PATH`: training/validation parquet files
+- `OUTPUT_DIR`: where to write logs/checkpoints
+
+The script also starts a local Ray head node (ports configurable via `RAY_PORT` / `RAY_DASHBOARD_PORT`).

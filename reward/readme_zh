@@ -78,3 +78,16 @@ AskOverconfidence 模块（`overconfidence_qa.py`）常用字段：
 - `is_final_turn`, `ori_question`, `overconfidence_info`, `misleading_points`, `question`, `context`, `expected_answer`
 
 更细的代码结构、prompt 与 JSON schema 说明见 `reward/readme_for_ai_zh.md`。
+
+## 4）训练脚本参考
+
+`reward/train.sh` 是一个**已脱敏**的训练启动脚本参考（基于论文中的训练设置：VERL + Ray + `recipe.dapo.main_dapo`）。
+
+它不会开箱即用，使用前需要你自行修改/导出：
+
+- `VERL_DIR`：本地 VERL 仓库根目录
+- `MODEL_PATH`：HuggingFace 模型目录
+- `DATA_TRAIN_PATH`, `DATA_VAL_PATH`：训练/验证 parquet 数据
+- `OUTPUT_DIR`：输出目录（log/checkpoint）
+
+脚本里也会启动本地 Ray head（端口可用 `RAY_PORT` / `RAY_DASHBOARD_PORT` 配置）。
