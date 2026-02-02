@@ -1,11 +1,126 @@
-`ask_eval` is the evaluation pipeline, and `data_pipeline` is the data construction pipeline.
+# When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification
 
-- `ask_eval/README.md`: user-facing usage guide for `ask_eval`.
-- `ask_eval/readme_for_ai.md`: implementation notes for debugging/modifying `ask_eval`.
-- `ask_eval/run.sh`: entry script for running evaluations.
-- `data_pipeline/README.md`: user-facing usage guide for `data_pipeline`.
-- `data_pipeline/readme_for_ai.md`: implementation notes for debugging/modifying `data_pipeline`.
-- `data_pipeline/main.py`: entry script for data construction.
-- `paper.pdf`: the paper for this project.
+English | [中文](readme_zh.md)
 
-Chinese copies of the original docs are preserved with a `_zh` suffix (for example, `readme_zh`).
+This repository contains the code and assets for the paper **“When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification”** (see `paper.pdf`).
+
+Large language models often respond confidently even when a prompt is underspecified or contains misleading premises. This project studies **when** a model should ask for clarification and **what** it should ask, and provides:
+
+- **AskBench**: an interactive benchmark that converts standard QA pairs into multi-turn interactions with explicit checkpoints.
+- A **unified judge loop** that (1) evaluates final answers and (2) simulates user replies when the model asks questions.
+- Two core settings:
+  - **AskMind**: intent-deficient / missing-information queries that require clarification.
+  - **AskOverconfidence**: queries with false premises that must be identified and corrected before answering.
+
+## AskBench at a glance
+
+AskBench evaluates clarification as an *interactive* skill. Each example is run with:
+
+- a **tested model** (the assistant under evaluation), and
+- a **judge model** that plays multiple roles:
+  - **simulated user** (provides follow-up information when the assistant asks), and
+  - **grader** (judges whether the final answer is correct and whether required points were properly covered).
+
+The tested model may ask clarification questions; the judge loop may simulate user replies as needed; and the evaluation ends with a final answer and a judge decision.
+
+## Repository layout
+
+- `ask_eval/`: evaluation pipeline (single-turn + AskBench-style multi-turn).
+  - User guide: `ask_eval/README.md`
+  - Implementation notes: `ask_eval/readme_for_ai.md`
+  - Entry script: `ask_eval/run.sh`
+- `data_pipeline/`: data construction pipeline for building AskBench-style multi-turn dialogues.
+  - User guide: `data_pipeline/README.md`
+  - Implementation notes: `data_pipeline/readme_for_ai.md`
+  - Entry script: `data_pipeline/main.py`
+- `reward/`: rubric-guided reward function / training helpers (for RLVR-style training).
+- `paper.pdf`: paper PDF (anonymous submission build).
+
+Chinese copies of the original documentation are preserved with a `_zh` suffix (e.g., `readme_zh.md`, `ask_eval/README_zh.md`).
+
+## Setup
+
+Recommended: Python 3.10+ with a virtual environment.
+
+### Install `ask_eval`
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+
+pip install -e ./ask_eval
+```
+
+### Install `data_pipeline` dependencies
+
+```bash
+pip install -r data_pipeline/requirements.txt
+```
+
+## Quickstart: run evaluation (AskBench + standard QA)
+
+`ask_eval` expects an **OpenAI-compatible** chat-completions API for:
+
+- the **tested model** (candidate), and
+- the **judge model** (used for grading; and for AskBench, also for user simulation).
+
+1) Configure your model endpoints and tokens in `ask_eval/config/base.ini` (and/or per-task overrides under `ask_eval/config/common/`).
+2) Run:
+
+```bash
+cd ask_eval
+python scripts/main.py --config config/base.ini
+```
+
+For a convenience wrapper that overrides config fields via shell variables, see `ask_eval/run.sh`.
+
+Notes:
+
+- AskBench-style tasks run a judge-driven multi-turn protocol via `ask_eval/scripts/run_ask.py`.
+- You can enable a stricter two-turn AskBench protocol via `STRICT_MODE=1` in `ask_eval/run.sh`.
+- Evaluation outputs are written under `ask_eval/results/<task>/<task_name>/`, and an aggregated line is appended to `ask_eval/results/final_result.txt`.
+
+## Datasets
+
+- **Evaluation data (tracked in this repo)**: under `ask_eval/data/` (AskBench subsets + standard benchmarks used by the pipeline).
+- **Optional training / intermediate data (not tracked)**: you can place large local files under `data/` (this repo’s `.gitignore` ignores `data/` by default).
+
+## Outputs (what gets written)
+
+Depending on the task type, `ask_eval` writes a combination of:
+
+- `results.txt`: human-readable summary (metrics + timing).
+- `summary_results.json`: per-example outputs for single-turn tasks.
+- `askbench_detailed_results.json`: turn-by-turn traces and judge decisions for AskBench-style tasks.
+
+## Build (or rebuild) combined AskBench eval sets
+
+The AskBench “main” tasks are small mixtures built from multiple subsets (e.g., 100 per source benchmark).
+
+```bash
+python ask_eval/data/ask_bench/ask_mind/build_combined_eval.py
+python ask_eval/data/ask_bench/ask_overconfidence/build_combined_eval.py
+```
+
+## Quickstart: build AskBench-style training dialogues
+
+The data construction pipeline generates multi-turn conversations (clarify → simulated user reply → answer → judge), and writes successful items plus failure metadata for debugging/resume.
+
+See `data_pipeline/README.md` for the recommended entry points and parameters.
+
+## Rubric-guided reward (RLVR)
+
+The `reward/` directory contains a reward implementation and helper scripts used for rubric-guided RLVR-style training. See `reward/readme`.
+
+## Citation
+
+If you use this codebase, please cite the paper:
+
+```bibtex
+@misc{askbench2026,
+  title        = {When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification},
+  author       = {Anonymous},
+  year         = {2026},
+  note         = {Anonymous ACL submission},
+}
+```
