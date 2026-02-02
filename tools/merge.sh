@@ -1,12 +1,26 @@
 #!/bin/bash
-# merge_fast.sh
+# merge.sh
+set -e
 
-CHECKPOINT_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/RL/verl/checkpoints/verl/Qwen2.5-7B-Instruct_qwen25_7b_17k_mathhard-7bhard/global_step_160/actor"
-OUTPUT_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/models/Qwen2.5-7B-Instruct_qwen25_7b_17k_mathhard-7bhard"
-WORLD_SIZE=8
+# Override via env vars if desired (e.g., CHECKPOINT_DIR=... OUTPUT_DIR=... bash tools/merge.sh)
+CHECKPOINT_DIR="${CHECKPOINT_DIR:-verl/checkpoints/verl/Qwen2.5-7B-Instruct_test/global_step_160/actor}"
+OUTPUT_DIR="${OUTPUT_DIR:-train/models/Qwen2.5-7B-Instruct_test}"
+WORLD_SIZE="${WORLD_SIZE:-8}"
+
+# Path to the VERL checkpoint conversion script in your environment.
+# This repo does not vendor merge_verl.py; update this to match your setup.
+MERGE_SCRIPT_PATH="${MERGE_SCRIPT_PATH:-/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/RL/verl/checkpoints/merge_verl.py}"
 
 # Parallel worker count (recommended: number of CPU cores)
-NUM_WORKERS=$(nproc)  # Auto-detect CPU core count
+if command -v nproc >/dev/null 2>&1; then
+    DEFAULT_NUM_WORKERS="$(nproc)"
+elif command -v sysctl >/dev/null 2>&1; then
+    DEFAULT_NUM_WORKERS="$(sysctl -n hw.ncpu 2>/dev/null || echo 16)"
+else
+    DEFAULT_NUM_WORKERS=16
+fi
+
+NUM_WORKERS="${NUM_WORKERS:-$DEFAULT_NUM_WORKERS}"
 # Or set manually: NUM_WORKERS=16
 
 echo "=================================================="
@@ -16,13 +30,18 @@ echo "Checkpoint: $CHECKPOINT_DIR"
 echo "Output: $OUTPUT_DIR"
 echo "World Size: $WORLD_SIZE"
 echo "Parallel Workers: $NUM_WORKERS"
+echo "Merge script: $MERGE_SCRIPT_PATH"
 echo "=================================================="
 
 # Show system resources
 echo "💻 System Resources:"
-echo "  CPU cores: $(nproc)"
-echo "  Memory:"
-free -h | grep -E "Mem|Swap"
+if command -v nproc >/dev/null 2>&1; then
+    echo "  CPU cores: $(nproc)"
+fi
+if command -v free >/dev/null 2>&1; then
+    echo "  Memory:"
+    free -h | grep -E "Mem|Swap" || true
+fi
 echo ""
 
 # Environment tweaks
@@ -30,14 +49,23 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 
+# Basic validation
+if [ ! -d "$CHECKPOINT_DIR" ]; then
+    echo "❌ CHECKPOINT_DIR not found: $CHECKPOINT_DIR"
+    exit 1
+fi
+if [ ! -f "$MERGE_SCRIPT_PATH" ]; then
+    echo "❌ MERGE_SCRIPT_PATH not found: $MERGE_SCRIPT_PATH"
+    echo "   Please set MERGE_SCRIPT_PATH to your local merge_verl.py."
+    exit 1
+fi
+
 # Run conversion
-time python -u /lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/RL/verl/checkpoints/merge_verl.py \
+if time python -u "$MERGE_SCRIPT_PATH" \
     --checkpoint_dir "$CHECKPOINT_DIR" \
     --output_dir "$OUTPUT_DIR" \
     --world_size "$WORLD_SIZE" \
-    --num_workers "$NUM_WORKERS"
-
-if [ $? -eq 0 ]; then
+    --num_workers "$NUM_WORKERS"; then
     echo ""
     echo "=================================================="
     echo "✅ SUCCESS!"

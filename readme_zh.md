@@ -34,6 +34,7 @@ AskBench 将“澄清”作为一种**交互能力**来评测。每个样本运�
   - 实现细节/调试定位：`data_pipeline/readme_for_ai.md`
   - 入口脚本：`data_pipeline/main.py`
 - `reward/`：rubric-guided reward / 训练辅助脚本（用于 RLVR 风格训练）。
+- `tools/`：辅助脚本，用于（1）将训练 checkpoint 转成可推理的 HuggingFace 模型目录，以及（2）用 vLLM 部署 OpenAI-compatible API。
 - `paper.pdf`：论文 PDF（匿名投稿版本构建产物）。
 
 原中文文档已用 `_zh` 后缀保留（例如 `ask_eval/README_zh.md`）。
@@ -79,6 +80,49 @@ python scripts/main.py --config config/base.ini
 - AskBench 风格任务通过 `ask_eval/scripts/run_ask.py` 跑 judge-driven 多轮评测。
 - 可在 `ask_eval/run.sh` 中设置 `STRICT_MODE=1` 来启用更严格的两轮协议（第一轮必须澄清/纠正，第二轮必须直接给最终答案且不能再追问）。
 - 评测输出写入 `ask_eval/results/<task>/<task_name>/`，并在 `ask_eval/results/final_result.txt` 追加聚合汇总行。
+
+## 工具：checkpoint 转换 + OpenAI-compatible API 部署
+
+`ask_eval` 通过 OpenAI-compatible 的 chat-completions API 调用模型。如果你的工作流是基于 API 调用，这里提供了 `tools/` 下两个常用脚本，对应一个常见流程：
+
+1) （可选）**把训练 checkpoint 转成推理可用的 HuggingFace 模型目录**：`tools/merge.sh`。
+2) **用 vLLM 部署成 OpenAI-compatible API**：`tools/vllm.sh`。
+
+### 训练 checkpoint 转换（`tools/merge.sh`）
+
+部分训练产物（例如 VERL/RLVR 训练输出的分片 checkpoint）无法直接被 vLLM 加载推理，需要先合并/导出成标准 HuggingFace 模型文件夹。
+
+1) 修改 `tools/merge.sh` 中的变量：
+   - `CHECKPOINT_DIR`：训练 checkpoint 路径（通常是某个 `.../actor` 目录）
+   - `OUTPUT_DIR`：导出后的模型目录
+   - `WORLD_SIZE`：checkpoint 分片数量（一般等于训练的 world size）
+   - `MERGE_SCRIPT_PATH`：你环境中 `merge_verl.py` 转换脚本的路径
+2) 运行：
+
+```bash
+bash tools/merge.sh
+```
+
+成功后，将 `tools/vllm.sh` 的 `MODEL_PATH` 指向导出的 `OUTPUT_DIR`。
+
+### 用 vLLM 部署 OpenAI-compatible API（`tools/vllm.sh`）
+
+该脚本启动 vLLM 的 OpenAI-compatible server（`vllm.entrypoints.openai.api_server`）。
+
+1) 修改 `tools/vllm.sh` 中的变量：
+   - `MODEL_PATH`：HuggingFace 模型目录（可以是 base 模型，也可以是 `tools/merge.sh` 产出的 `OUTPUT_DIR`）
+   - `CUDA_DEVICES` 与 `TP`：应与参与 tensor-parallel 的 GPU 数量一致
+   - `PORT`：服务端口
+2) 运行：
+
+```bash
+bash tools/vllm.sh
+```
+
+然后在 `ask_eval/config/base.ini`（或 `ask_eval/run.sh`）中配置服务地址，例如：
+
+- `[model] api_url = http://<host>:<port>/v1`
+- `[model] model_name = default`（需与 `tools/vllm.sh` 中的 `--served-model-name` 一致）
 
 ## 数据集
 

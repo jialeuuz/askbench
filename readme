@@ -34,6 +34,7 @@ The tested model may ask clarification questions; the judge loop may simulate us
   - Implementation notes: `data_pipeline/readme_for_ai.md`
   - Entry script: `data_pipeline/main.py`
 - `reward/`: rubric-guided reward function / training helpers (for RLVR-style training).
+- `tools/`: helper scripts for (1) converting training checkpoints into an inference-ready HuggingFace model dir, and (2) serving a model as an OpenAI-compatible API (vLLM).
 - `paper.pdf`: paper PDF (anonymous submission build).
 
 Chinese copies of the original documentation are preserved with a `_zh` suffix (e.g., `readme_zh.md`, `ask_eval/README_zh.md`).
@@ -79,6 +80,49 @@ Notes:
 - AskBench-style tasks run a judge-driven multi-turn protocol via `ask_eval/scripts/run_ask.py`.
 - You can enable a stricter two-turn AskBench protocol via `STRICT_MODE=1` in `ask_eval/run.sh`.
 - Evaluation outputs are written under `ask_eval/results/<task>/<task_name>/`, and an aggregated line is appended to `ask_eval/results/final_result.txt`.
+
+## Tools: checkpoint conversion + OpenAI-compatible serving
+
+`ask_eval` calls models via an OpenAI-compatible chat-completions API. If your workflow is API-based, the two scripts under `tools/` are intended to cover a common flow:
+
+1) (Optional) **Convert a training checkpoint** into an inference-ready HuggingFace model directory: `tools/merge.sh`.
+2) **Serve the model as an OpenAI-compatible API** using vLLM: `tools/vllm.sh`.
+
+### Convert (merge) a trained checkpoint for inference (`tools/merge.sh`)
+
+Some training runs (e.g., sharded checkpoints from VERL/RLVR training) are not directly loadable by vLLM. In that case, run the conversion step to export a standard HuggingFace model folder.
+
+1) Edit `tools/merge.sh` to set:
+   - `CHECKPOINT_DIR`: the training checkpoint directory (often an `.../actor` folder)
+   - `OUTPUT_DIR`: where to write the merged/exported model
+   - `WORLD_SIZE`: number of checkpoint shards (typically your training world size)
+   - `MERGE_SCRIPT_PATH`: path to the `merge_verl.py` conversion script in your environment
+2) Run:
+
+```bash
+bash tools/merge.sh
+```
+
+After success, point `MODEL_PATH` in `tools/vllm.sh` to the exported `OUTPUT_DIR`.
+
+### Serve a model as an OpenAI-compatible API (`tools/vllm.sh`)
+
+This script launches vLLM’s OpenAI-compatible server (`vllm.entrypoints.openai.api_server`).
+
+1) Edit `tools/vllm.sh` to set:
+   - `MODEL_PATH`: a HuggingFace model directory (base model, or the `OUTPUT_DIR` produced by `tools/merge.sh`)
+   - `CUDA_DEVICES` and `TP`: should match the number of GPUs used for tensor-parallelism
+   - `PORT`: server port
+2) Run:
+
+```bash
+bash tools/vllm.sh
+```
+
+Then configure `ask_eval/config/base.ini` (or `ask_eval/run.sh`) to point at the server, e.g.:
+
+- `[model] api_url = http://<host>:<port>/v1`
+- `[model] model_name = default` (must match `--served-model-name` in `tools/vllm.sh`)
 
 ## Datasets
 

@@ -1,15 +1,16 @@
 #!/bin/bash
-MODEL_PATH=/lpai/dataset/rubrics-models/0-2-0/Qwen2.5-7B-Instruct
+set -e
+MODEL_PATH=/Qwen2.5-7B-Instruct
 
-PORT=8013
+PORT=8012
 # CUDA_DEVICES="0,1,2,3,4,5,6,7"
 # CUDA_DEVICES="0,1"
-CUDA_DEVICES="2,3"
+# CUDA_DEVICES="2,3"
 # CUDA_DEVICES="4,5"
 # CUDA_DEVICES="6,7"
-# CUDA_DEVICES="0,1,2,3"
+CUDA_DEVICES="0,1,2,3"
 # CUDA_DEVICES="4,5,6,7"
-TP=2  # Tensor-parallel size (should match the number of GPUs in CUDA_DEVICES)
+TP=4  # Tensor-parallel size (should match the number of GPUs in CUDA_DEVICES)
 
 echo "Using MODEL_PATH=${MODEL_PATH}"
 echo "CUDA_DEVICES=${CUDA_DEVICES}"
@@ -21,7 +22,12 @@ export NCCL_IB_DISABLE=1
 export NCCL_DEBUG=info
 export NCCL_SOCKET_IFNAME=eth0
 
-export TIKTOKEN_RS_CACHE_DIR=/mnt/pfs-guan-ssai/nlu/zhaojiale/models/data_generate
+# Optional: set a writable cache dir for tiktoken-rs (leave empty to use default).
+# Example:
+# TIKTOKEN_RS_CACHE_DIR="/tmp/tiktoken-cache"
+if [ -n "${TIKTOKEN_RS_CACHE_DIR:-}" ]; then
+    export TIKTOKEN_RS_CACHE_DIR
+fi
 
 
 python -m vllm.entrypoints.openai.api_server \
