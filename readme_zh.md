@@ -44,13 +44,13 @@ AskBench 将“澄清”作为一种**交互能力**来评测。每个样本运�
 
 ## 环境与安装
 
-建议：Python 3.10+，并使用虚拟环境。
+建议：Python 3.10+，并使用 conda 环境。
 
 ### 安装 `ask_eval`
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+conda create -n askq python=3.10 -y
+conda activate askq
 
 pip install -e ./ask_eval
 ```

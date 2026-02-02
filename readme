@@ -44,13 +44,13 @@ Chinese copies of the original documentation are preserved with a `_zh` suffix (
 
 ## Setup
 
-Recommended: Python 3.10+ with a virtual environment.
+Recommended: Python 3.10+ in a conda environment.
 
 ### Install `ask_eval`
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+conda create -n askq python=3.10 -y
+conda activate askq
 
 pip install -e ./ask_eval
 ```
