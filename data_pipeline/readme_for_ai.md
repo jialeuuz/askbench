@@ -1,4 +1,15 @@
-# 数据构建流水线（Data Pipeline）
+# data_pipeline（readme_for_ai）
+
+这份文档偏向“给开发/维护这个 pipeline 的人（或 LLM）看的实现说明”。如果你只想快速跑通数据生成，请优先看 `README.md`。
+
+与论文（`paper.pdf`）对应关系：
+- **AskMind（intent-deficient）**：`degraded_question` + `required_points`，对应缺失信息的 rubric/checkpoints
+- **AskOverconfidence（misleading claims）**：`overconfidence_question` + `misleading_points`，对应误导断言的 rubric/checkpoints
+- **Judge loop**：策略内部的“覆盖自检 + 裁判判断 +（必要时）强制修正”，用于离线构造可控的多轮轨迹
+
+---
+
+## 数据构建流水线（Data Pipeline）
 
 一个基于异步并发与可插拔策略（strategies）的数据构建流水线，用于从原始问答样本生成多轮对话训练数据，或直接答案+修正的数据。支持：
 - 大文件 JSONL 的流式读取，避免内存爆炸
@@ -120,6 +131,18 @@ asyncio.run(main(
 5) `strategy_direct_answer_and_correct`
 - 目标：先直接生成答案，再判断；若错误则基于 `expected_answer` 和可选 `solution` 重构为“完美答案”，输出最终对话
 - 流程更短，适用于无需多轮追问的场景
+
+
+## 开发提示（新增/改造策略）
+- 统一约定：策略函数均为 `async def xxx(api_client, data, templates, ...) -> (completed_items, failed_items)`，并返回“成功样本列表 + 失败样本列表”。
+- 多轮策略优先复用 `strategies._run_multi_turn_strategy(...)`，减少重复实现（Ask→SimUser→Coverage→Answer→Judge→ForceCorrect）。
+- `prompts.txt` 里新增模板时，确保模板名以 `template_` 开头且用三引号 `'''...'''` 包裹，`prompt_loader.load_prompts()` 才能解析。
+- 模板变量注入发生在 `strategies._run_batch_step_with_retry()`：
+  - 新增变量时在这里补齐 `format_args`；同时注意 `_safe_format()` 只会替换“已知 key”，避免模板里的 JSON 花括号触发 `str.format` 的 KeyError。
+- JSON schema 解析/校验：
+  - 劣化/overconfidence 生成依赖 `_parse_question_variant_json_response()` 抽取 JSON 并校验 key 是否齐全。
+  - 覆盖自检依赖 `_parse_coverage_json_response()`，裁判依赖 `_parse_judge_json_response()`。
+  - 解析失败会自动重试；仍失败会写入 `_failed.jsonl` 并附带 `_failure.response_preview` 便于定位 Prompt 问题。
 
 
 ## Prompt 模板
