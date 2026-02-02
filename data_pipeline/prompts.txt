@@ -1,8 +1,8 @@
 # ===================================================================
-# prompts.txt (V4 - 最终修正版)
+# prompts.txt (V4 - final)
 # ===================================================================
 
-# ### V3 修正版: 增加了严格的负向约束，防止修改无关内容 ###
+# ### V3 revision: add strict negative constraints to prevent unrelated edits ###
 template_generate_degraded_question_and_info = '''You are an expert in query obfuscation. Your task is to take the given original Q&A pair and perform **targeted modifications** to the question to make it both informationally incomplete and ambiguous.
 
 **You must strictly follow these rules:**
@@ -280,7 +280,7 @@ You are acting as a person seeking help from an AI assistant. You must play this
 Provide only the text of your response. Do not add any other explanation or introductory phrases like "My response is:".
 '''
 
-# ### V3 修正版: 明确要求输出详细的推理过程 ###
+# ### V3 revision: explicitly require detailed reasoning ###
 template_generate_final_answer = '''
 You are a helpful AI assistant. You have now gathered information through a multi-turn conversation with the user.
 Your task is to provide a correct final answer based on the **entire conversation history**.
@@ -296,7 +296,7 @@ Your task is to provide a correct final answer based on the **entire conversatio
 # Your Final Response (brief justification + "Final Answer: ..."):
 '''
 
-# ### V3 核心修正: 增加了 `degraded_info` 作为判断依据 ###
+# ### V3 core change: include `degraded_info` as judging context ###
 template_judge_answer = '''
 You are an expert evaluator reviewing the last response from an AI assistant that must resolve all scenario-specific checkpoints before committing to a final answer.
 
@@ -363,7 +363,7 @@ Review the "Conversation History" and the "Degradation Info" to ask a **new, pre
 # Your New Clarifying Question:
 '''
 
-# 合并询问：在最后一轮一次性把剩余未覆盖要点问清
+# Ask-all-at-once: in the last turn, ask for all remaining uncovered points
 template_assistant_ask_all_remaining = '''
 You are a helpful and thorough AI assistant. This is the final opportunity to clarify missing information before producing the final answer.
 
@@ -384,7 +384,7 @@ Examine the conversation and the required checklist. Identify all items that rem
 # Your Single Combined Clarifying Question:
 '''
 
-# 覆盖自检：作答前核对是否已覆盖所有必要信息点
+# Coverage self-check: before answering, verify all required points are covered
 template_coverage_check = '''
 You are a strict coverage checker. Your sole task is to determine whether the conversation has obtained explicit user-provided values for all required information points.
 
@@ -426,10 +426,10 @@ Your task is to now generate the perfect, correct final reply that you **should 
 '''
 
 # ===================================================================
-# 策略 3: Direct Answer & Correct 的 Prompts
+# Strategy 3: Prompts for Direct Answer & Correct
 # ===================================================================
 
-# 步骤 1: 直接生成包含关键点分析的答案
+# Step 1: Directly generate an answer with key-point analysis
 template_direct_answer = '''
 You are an expert analyst and problem-solver. Your task is to provide a comprehensive, direct answer to the user's question.
 
@@ -448,7 +448,7 @@ Your response must follow this specific structure:
 # Your Comprehensive Answer:
 '''
 
-# 步骤 2: 判断直接生成的答案是否正确
+# Step 2: Judge whether the direct answer is correct
 template_judge_direct_answer = '''
 You are a meticulous and objective answer evaluator. Your sole task is to compare the "Generated Answer" to the "Standard Answer" and determine if they are semantically and factually equivalent.
 
@@ -473,7 +473,7 @@ You must return your verdict **only** in the following strict JSON format.
 # Your Review (JSON format only):
 '''
 
-# 步骤 4: 根据正确答案和解题思路重构一个完美的答案
+# Step 4: Reconstruct a “perfect answer” from the reference answer and solution reasoning
 template_reconstruct_answer = '''
 You are an expert AI assistant tasked with self-correction. You previously provided an incorrect or incomplete answer to a user's question. Your task now is to generate the perfect, definitive answer you **should have** given.
 

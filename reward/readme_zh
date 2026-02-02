@@ -1,0 +1,39 @@
+reward/yitu.py是意图缺失维度的reward代码
+将其放到/verl/verl/utils/reward_score目录下，同时修改该目录下的__init__.py，在def default_compute_score()函数中添加如下代码即可：
+    if data_source == 'medical_qa':
+        from .medical_qa import compute_score_medical_qa
+        return compute_score_medical_qa(
+            data_source=data_source,
+            solution_str=solution_str,
+            ground_truth=ground_truth,
+            extra_info=extra_info
+        )
+使用前需要在yitu.py开头API_URLS配置API，用的是a3b模型（Qwen3-30B-A3B-Instruct-2507）
+tools/process_data_for_yitu.py可以将data/17k_dapo_7b_reject_ask.jsonl数据转换为训练需要的格式在if __name__ == "__main__":配置参数即可
+reward/train.sh记录着我用的训练参数，不过不同机器参数配置要调整，比如batchsize之类的，意图缺失维度我测试下来可能用不到2k的上下文和8k的response，显存不够可以缩小一些
+训练趋势查看：
+1. 我写的monitor：if __name__ == "__main__":里配置参数即可，运行后是gradio网页
+2. tensorboard：tensorboard_log/verl_zjl：这里的tensorboard_log默认应该是位于/verl/tensorboard_log下，运行后也是个网页链接，点进去看就行，但是内容很多，我也在探索怎么用，我一般左边勾选模型，中间找到val-aux展开查看reward和score趋势
+    tensorboard --logdir /lpai/volumes/base-mindgpt-ali-sh-mix/zhouyang/verl_run/tensorboard_log
+
+tools/gradio_compare.py可以比较两个模型的输出，control F 搜索api1_input即可找到配置API位置或直接运行在gradio界面配置。
+
+标准数据结构格式：
+    ori_question列：原始问题
+    expected_answer列：期望答案
+    pass_rate列：通过率（0.0到16.0,16.0表示16次全通过,都是整数只是存储为了浮点形式）
+    PS：这里部分数据有多余列比如degrade_info，建议不要使用，不确定这种数据是不是基于最新的data_pipeline构建的
+
+新版yitu训练出来的效果似乎较难拟合，分数比较低，可能是因为用的是数学，或许不应该换成其他类型的数据试试？
+孤狼维度可能也要换成其他类型的数据试试？
+
+
+https://huggingface.co/datasets/open-r1/DAPO-Math-17k-Processed
+RAR-med
+RAR-science
+Rubrics as Rewards: Reinforcement Learning Beyond Verifiable Domains
+
+hostname -i查看服务器ip
+
+造数据模型：
+qwen3-235b-a22b-instruct-2507 

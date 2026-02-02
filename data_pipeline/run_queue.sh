@@ -1,18 +1,18 @@
 #!/bin/bash
 
 # ==============================================================================
-# --- 任务配置中心 (可读性优化版) ---
+# --- Task configuration center (readability-first) ---
 # ==============================================================================
 
-# 使用方法:
-# 1. 为每一个【串行任务队列】定义一个变量 (例如 SERIAL_QUEUE_1, SERIAL_QUEUE_2)。
-#    - 每个变量包含一个或多个任务的JSON数组 `[{...}, {...}]`。
-#    - 队列内的任务会按顺序执行。
+# Usage:
+# 1) Define one variable per *serial task queue* (e.g., SERIAL_QUEUE_1, SERIAL_QUEUE_2).
+#    - Each variable is a JSON array string: `[{...}, {...}]`.
+#    - Tasks inside a queue run sequentially.
 
-# 2. 在 `PARALLEL_QUEUES` 列表中组合你想要【并行执行】的队列。
-#    - 列表中的每个队列变量都会在一个独立的并行进程中运行。
+# 2) Combine queues you want to run *in parallel* in the `PARALLEL_QUEUES` array.
+#    - Each queue runs in its own parallel process.
 
-# --- 串行队列 1 ---
+# --- Serial queue 1 ---
 SERIAL_QUEUE_1='[
   {
     "STRATEGY": "generate_multi_turn_degraded_training_data",
@@ -34,7 +34,7 @@ SERIAL_QUEUE_1='[
   }
 ]'
 
-# --- 串行队列 2(使用不同API，可以并行) ---
+# --- Serial queue 2 (uses a different API; can run in parallel) ---
 SERIAL_QUEUE_2='[
   {
     "STRATEGY": "generate_multi_turn_degraded_training_data",
@@ -63,10 +63,10 @@ SERIAL_QUEUE_2='[
 ]'
 
 
-# --- 组合队列以进行并行执行 ---
-# 在下面的列表中添加或删除你想运行的队列变量。
-# 例如，要只运行第一个队列，可以写成: PARALLEL_QUEUES=( "$SERIAL_QUEUE_1" )
-# 下面的配置会并行运行以上定义的三个队列。
+# --- Parallel execution plan ---
+# Add/remove queue variables below.
+# Example: to run only the first queue: PARALLEL_QUEUES=( "$SERIAL_QUEUE_1" )
+# The config below runs the queues defined above in parallel.
 PARALLEL_QUEUES=(
   "$SERIAL_QUEUE_1"
   "$SERIAL_QUEUE_2"
@@ -74,30 +74,30 @@ PARALLEL_QUEUES=(
 
 
 # ==============================================================================
-# --- 执行脚本 (无需修改) ---
+# --- Execution script (no changes needed) ---
 # ==============================================================================
-# 这部分代码会自动将上面定义的队列组合成 Python 脚本所需的最终 JSON 格式。
+# This section combines the queues into the final JSON format expected by the Python scheduler.
 
-# 检查是否有任何队列被定义
+# Check whether any queues are configured
 if [ ${#PARALLEL_QUEUES[@]} -eq 0 ]; then
-  echo "警告: PARALLEL_QUEUES 数组为空，没有任务需要执行。"
+  echo "Warning: PARALLEL_QUEUES is empty; no tasks to run."
   exit 0
 fi
 
-# 使用逗号连接所有队列，并用方括号包围，以形成一个有效的JSON数组
+# Join all queues with commas and wrap with brackets to form a valid JSON array
 TASK_CONFIG=$(IFS=,; echo "[${PARALLEL_QUEUES[*]}]")
 
-# 获取脚本所在目录
+# Get script directory
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
-echo "任务配置加载完毕，准备启动 Python 调度器..."
-echo "将在目录: $DIR 中执行"
-echo "将并行执行 ${#PARALLEL_QUEUES[@]} 个任务队列。"
+echo "Task config loaded. Launching Python scheduler..."
+echo "Working directory: $DIR"
+echo "Parallel queues: ${#PARALLEL_QUEUES[@]}"
 echo "--------------------------------------------------"
 
-# 使用 python3 执行调度器，并将任务配置作为命令行参数传递。
-# (cd ... && python3 ...) 确保脚本在正确的目录上下文中运行。
+# Run the scheduler and pass the task config as a CLI argument.
+# (cd ... && python3 ...) ensures the correct working directory.
 (cd "$DIR" && python3 main_queue.py "$TASK_CONFIG")
 
 echo "--------------------------------------------------"
-echo "Shell 脚本执行完毕。"
+echo "Shell script finished."

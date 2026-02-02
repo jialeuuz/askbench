@@ -5,7 +5,7 @@ import os
 from .base import BaseDataLoader
 
 class JsonlLoader(BaseDataLoader):
-    """JSONL文件加载器"""
+    """JSONL file loader."""
     def __init__(self, data_dir: str, filename: str = "test.jsonl"):
         super().__init__(data_dir)
         self.filename = filename

@@ -9,7 +9,7 @@ from typing import List, Tuple
 logger = logging.getLogger(__name__)
 
 def _build_headers(sk_token: str = None, model_name: str = None) -> dict:
-    """生成健康检查所需的请求头。"""
+    """Build request headers for health checks."""
     headers = {'Content-Type': 'application/json'}
     if model_name and model_name.lower() != 'default':
         headers['model'] = model_name
@@ -28,19 +28,19 @@ def check_url_health(
     max_wait_minutes: int = 15
 ) -> bool:
     """
-    检查URL的健康状态，最多等待15分钟
+    Check whether a URL is healthy (wait up to max_wait_minutes).
     
     Args:
         url: API URL
-        sk_token: 授权令牌
-        api_type: API类型
-        model_name: 模型名称或自定义路由标识
-        max_wait_minutes: 最长等待时间（分钟）
+        sk_token: auth token
+        api_type: API type
+        model_name: model name or custom routing identifier
+        max_wait_minutes: max wait time (minutes)
         
     Returns:
-        bool: URL是否健康
+        bool: whether the URL is healthy
     """
-    # 构造一个简单的请求数据
+    # A minimal request payload for probing.
     data = {
         "messages": [{"role": "user", "content": "Hello"}],
         "max_tokens": 10,
@@ -56,7 +56,7 @@ def check_url_health(
     if model_field:
         data["model"] = model_field
     
-    logger.info(f"开始检测URL健康状态: {url}, 最多等待{max_wait_minutes}分钟")
+    logger.info(f"Checking URL health: {url} (max wait: {max_wait_minutes} minutes)")
     
     start_time = time.time()
     max_wait_seconds = max_wait_minutes * 60
@@ -67,32 +67,32 @@ def check_url_health(
                 url, 
                 headers=headers, 
                 json=data, 
-                timeout=30  # 单次请求30秒超时
+                timeout=30  # per-request timeout (seconds)
             )
             
             if response.status_code == 200:
-                logger.info(f"URL健康检测成功: {url}")
+                logger.info(f"URL health check passed: {url}")
                 return True
             else:
-                logger.warning(f"URL响应异常: {url}, 状态码: {response.status_code}")
+                logger.warning(f"URL returned non-200: {url} (status={response.status_code})")
         
         except requests.Timeout:
-            logger.warning(f"URL请求超时: {url}")
+            logger.warning(f"URL request timed out: {url}")
         
         except Exception as e:
-            logger.warning(f"URL检测异常: {url}, 错误: {e}")
+            logger.warning(f"URL health check error: {url} (error={e})")
         
-        # 计算剩余等待时间
+        # Remaining wait time
         elapsed = time.time() - start_time
         remaining = max_wait_seconds - elapsed
         
         if remaining <= 0:
             break
             
-        logger.info(f"将在1分钟后重试, 剩余等待时间: {int(remaining/60)+1}分钟")
-        time.sleep(60)  # 每次等待1分钟后重试
+        logger.info(f"Retrying in 1 minute (remaining: {int(remaining/60)+1} minutes)")
+        time.sleep(60)  # wait 1 minute between retries
     
-    logger.error(f"URL健康检测失败，已等待{max_wait_minutes}分钟: {url}")
+    logger.error(f"URL health check failed after {max_wait_minutes} minutes: {url}")
     return False
 
 async def async_check_url_health(
@@ -103,19 +103,19 @@ async def async_check_url_health(
     max_wait_minutes: int = 15
 ) -> Tuple[str, bool]:
     """
-    异步检查URL的健康状态
+    Asynchronously check whether a URL is healthy.
     
     Args:
         url: API URL
-        sk_token: 授权令牌
-        api_type: API类型
-        model_name: 模型名称或自定义路由标识
-        max_wait_minutes: 最长等待时间（分钟）
+        sk_token: auth token
+        api_type: API type
+        model_name: model name or custom routing identifier
+        max_wait_minutes: max wait time (minutes)
         
     Returns:
-        Tuple[str, bool]: (URL, 是否健康)
+        Tuple[str, bool]: (URL, is_healthy)
     """
-    # 构造一个简单的请求数据
+    # A minimal request payload for probing.
     data = {
         "messages": [{"role": "user", "content": "Hello"}],
         "max_tokens": 10,
@@ -131,7 +131,7 @@ async def async_check_url_health(
     if model_field:
         data["model"] = model_field
     
-    logger.info(f"开始检测URL健康状态: {url}, 最多等待{max_wait_minutes}分钟")
+    logger.info(f"Checking URL health: {url} (max wait: {max_wait_minutes} minutes)")
     
     start_time = time.time()
     max_wait_seconds = max_wait_minutes * 60
@@ -144,31 +144,31 @@ async def async_check_url_health(
                     url, 
                     headers=headers, 
                     json=data, 
-                    timeout=30  # 单次请求30秒超时
+                    timeout=30  # per-request timeout (seconds)
                 ) as response:
                     if response.status == 200:
-                        logger.info(f"URL健康检测成功: {url}")
+                        logger.info(f"URL health check passed: {url}")
                         return url, True
                     else:
-                        logger.warning(f"URL响应异常: {url}, 状态码: {response.status}")
+                        logger.warning(f"URL returned non-200: {url} (status={response.status})")
             
             except asyncio.TimeoutError:
-                logger.warning(f"URL请求超时: {url}")
+                logger.warning(f"URL request timed out: {url}")
             
             except Exception as e:
-                logger.warning(f"URL检测异常: {url}, 错误: {e}")
+                logger.warning(f"URL health check error: {url} (error={e})")
             
-            # 计算剩余等待时间
+            # Remaining wait time
             elapsed = time.time() - start_time
             remaining = max_wait_seconds - elapsed
             
             if remaining <= 0:
                 break
                 
-            logger.info(f"将在1分钟后重试, 剩余等待时间: {int(remaining/60)+1}分钟")
-            await asyncio.sleep(60)  # 每次等待1分钟后重试
+            logger.info(f"Retrying in 1 minute (remaining: {int(remaining/60)+1} minutes)")
+            await asyncio.sleep(60)  # wait 1 minute between retries
     
-    logger.error(f"URL健康检测失败，已等待{max_wait_minutes}分钟: {url}")
+    logger.error(f"URL health check failed after {max_wait_minutes} minutes: {url}")
     return url, False
 
 async def async_check_urls_health(
@@ -179,38 +179,38 @@ async def async_check_urls_health(
     max_wait_minutes: int = 15
 ) -> Tuple[bool, List[str]]:
     """
-    异步检查多个URL的健康状态
+    Asynchronously check multiple URLs for health.
     
     Args:
-        urls: API URL列表
-        sk_token: 授权令牌
-        api_type: API类型
-        model_name: 模型名称或自定义路由标识
-        max_wait_minutes: 最长等待时间（分钟）
+        urls: list of API URLs
+        sk_token: auth token
+        api_type: API type
+        model_name: model name or custom routing identifier
+        max_wait_minutes: max wait time (minutes)
         
     Returns:
-        Tuple[bool, List[str]]: (是否有健康的URL, 健康URL列表)
+        Tuple[bool, List[str]]: (has_healthy_url, healthy_url_list)
     """
     if not urls:
-        logger.error("URL列表为空")
+        logger.error("URL list is empty")
         return False, []
     
-    # 并发检查所有URL
+    # Probe all URLs concurrently
     tasks = [
         async_check_url_health(url, sk_token, api_type, model_name, max_wait_minutes) 
         for url in urls
     ]
     results = await asyncio.gather(*tasks)
     
-    # 从结果中提取健康的URL
+    # Extract healthy URLs
     healthy_urls = [url for url, is_healthy in results if is_healthy]
     
     success = len(healthy_urls) > 0
     
     if not success:
-        logger.error(f"所有URL({len(urls)}个)都不健康")
+        logger.error(f"All URLs are unhealthy ({len(urls)} total)")
     else:
-        logger.info(f"找到{len(healthy_urls)}/{len(urls)}个健康的URL")
+        logger.info(f"Found {len(healthy_urls)}/{len(urls)} healthy URLs")
     
     return success, healthy_urls
 
@@ -222,24 +222,24 @@ def check_urls_health(
     max_wait_minutes: int = 15
 ) -> Tuple[bool, List[str]]:
     """
-    检查多个URL的健康状态 (同步包装器)
+    Check multiple URLs for health (sync wrapper).
     
     Args:
-        urls: API URL列表
-        sk_token: 授权令牌
-        api_type: API类型
-        model_name: 模型名称或自定义路由标识
-        max_wait_minutes: 最长等待时间（分钟）
+        urls: list of API URLs
+        sk_token: auth token
+        api_type: API type
+        model_name: model name or custom routing identifier
+        max_wait_minutes: max wait time (minutes)
         
     Returns:
-        Tuple[bool, List[str]]: (是否有健康的URL, 健康URL列表)
+        Tuple[bool, List[str]]: (has_healthy_url, healthy_url_list)
     """
-    # 检查当前是否在事件循环中运行
+    # Detect whether we're already running inside an event loop.
     try:
-        # 如果已经在事件循环中，则直接使用asyncio.run_coroutine_threadsafe或通过其他方式执行
+        # If we are already in an event loop, run the async probe in a separate thread.
         loop = asyncio.get_running_loop()
         
-        # 创建一个新的事件循环在新线程中运行异步任务
+        # Create a new event loop in a new thread to run the async tasks.
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as pool:
             future = pool.submit(
@@ -250,7 +250,7 @@ def check_urls_health(
             return future.result()
             
     except RuntimeError:
-        # 如果不在事件循环中，则可以直接使用asyncio.run
+        # If not in an event loop, we can use asyncio.run directly.
         return asyncio.run(
             async_check_urls_health(urls, sk_token, api_type, model_name, max_wait_minutes)
         )

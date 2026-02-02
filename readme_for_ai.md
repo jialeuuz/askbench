@@ -1,6 +1,10 @@
-ask_eval是评测pipeline，data_pipeline是数据构建pipeline。
-ask_eval/README.md记录着ask_eval的使用说明，ask_eval/run.sh是评测框架的入口脚本。
-data_pipeline/README.md是开源友好的使用说明；data_pipeline/readme_for_ai.md记录实现细节（方便定位与改代码）。
-data_pipeline/main.py是数据构建的入口脚本。
+`ask_eval` is the evaluation pipeline, and `data_pipeline` is the data construction pipeline.
 
+- `ask_eval/README.md`: user-facing usage guide for `ask_eval`.
+- `ask_eval/run.sh`: entry script for running evaluations.
+- `data_pipeline/README.md`: user-facing (open-source friendly) usage guide for `data_pipeline`.
+- `data_pipeline/readme_for_ai.md`: implementation notes for debugging/modifying `data_pipeline`.
+- `data_pipeline/main.py`: entry script for data construction.
+
+Chinese copies of the original docs are preserved with a `_zh` suffix (for example, `readme_for_ai_zh.md`).
 

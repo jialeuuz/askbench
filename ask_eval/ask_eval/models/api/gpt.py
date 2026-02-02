@@ -12,10 +12,10 @@ from ask_eval.models.base_api_model import BaseAPIModel
 
 logger = logging.getLogger(__name__)
 
-# 用于异步QPS限速的辅助类 (无修改)
+# Helper for async QPS rate limiting
 class RateLimiter:
     """
-    一个简单的异步速率限制器。
+    A simple async rate limiter.
     """
     def __init__(self, rate: int):
         self.rate = rate
@@ -25,7 +25,7 @@ class RateLimiter:
     async def wait(self):
         while self.tokens < 1:
             self._add_new_tokens()
-            await asyncio.sleep(0.05) # 短暂休眠以避免忙等待
+            await asyncio.sleep(0.05)  # brief sleep to avoid busy-waiting
         self.tokens -= 1
     
     def _add_new_tokens(self):
@@ -38,17 +38,19 @@ class RateLimiter:
 # mind_eval/models/api/gpt4o.py
 class GPTAPI(BaseAPIModel):
     """
-    GPT API实现，通过api_type支持多种GPT系列模型接口，并包含QPS限速和重试功能。
+    GPT API implementation.
+
+    This wrapper supports multiple GPT-style endpoints via api_type, and includes QPS limiting and retries.
     
-    `api_type` 参数支持以下模型:
-    - 'gpt4o': 适配ZNY风格的GPT-4o接口。
-    - 'o1-mini', 'o4-mini', 'gpt_41': 适配ZNY风格的其他GPT系列接口。
-    - 'gpt5': 适配新的GPT-5接口。  # <--- 新增
+    Supported `api_type` values (examples):
+    - 'gpt4o': GPT-4o style endpoint.
+    - 'o1-mini', 'o4-mini', 'gpt_41': other GPT-style endpoints.
+    - 'gpt5': newer GPT-5 style endpoint.
     
     `qps` (int):
-    - 每秒请求数限制。如果 > 0，将启用速率限制。
+    - Requests per second. If > 0, rate limiting is enabled.
     
-    API调用失败后将最多重试10次。
+    API calls are retried up to 10 times on failure.
     """
     def __init__(self, url: str, api_type: str = "gpt5", model_name: str = None, sk_token: str = 'none',
                  api_urls: List[str] = None, timeout: float = 300, extra_prompt: str = None,
@@ -72,7 +74,7 @@ class GPTAPI(BaseAPIModel):
 
     @staticmethod
     def _normalize_url(url: str) -> str:
-        """确保 GPT 风格的服务始终指向 /chat/completions 或者用户自定义的完整路径"""
+        """Ensure GPT-style services point to /chat/completions (or a user-provided full endpoint path)."""
         if not url:
             return url
         trimmed = url.rstrip("/")
@@ -86,17 +88,17 @@ class GPTAPI(BaseAPIModel):
             return trimmed
 
         normalized = f"{trimmed}/chat/completions"
-        logger.info("检测到 GPT API 未包含 chat/completions，已自动补齐: %s -> %s", trimmed, normalized)
+        logger.info("GPT API URL missing chat/completions; auto-normalized: %s -> %s", trimmed, normalized)
         return normalized
 
     def _encode_image(self, image_path: str) -> str:
-        """编码图片为base64"""
+        """Encode an image as base64."""
         with open(image_path, "rb") as image_file:
             return base64.b64encode(image_file.read()).decode('utf-8')
             
     def _format_request_messages(self, messages: List[Dict], image: str = None,
                                   temperature: float = 0, max_tokens: int = 6000) -> Dict:
-        """格式化请求消息体，兼容纯文本与图文混合场景"""
+        """Format request payload messages (supports text-only and text+image)."""
         processed_messages = json.loads(json.dumps(messages))
         image_attached = False
 
@@ -105,7 +107,7 @@ class GPTAPI(BaseAPIModel):
                 continue
 
             content = msg.get('content', '')
-            # 仅当提供图片时才将文本转换为多模态格式
+            # Only convert to multimodal format when an image is provided.
             if image and not image_attached:
                 multimodal_content = [{
                     "type": "image_url",
@@ -132,13 +134,13 @@ class GPTAPI(BaseAPIModel):
         return payload
 
     def _parse_response_content(self, response_data: Dict) -> str:
-        """从响应对象中提取文本内容"""
+        """Extract text content from an API response object."""
         if "data" in response_data and isinstance(response_data["data"], dict):
             response_data = response_data["data"]
 
         choices = response_data.get("choices")
         if not choices:
-            raise ValueError(f"响应格式无效: 未找到 'choices' 键。响应内容: {response_data}")
+            raise ValueError(f"Invalid response format: missing 'choices'. Response: {response_data}")
 
         choice = choices[0]
         content = None
@@ -150,7 +152,7 @@ class GPTAPI(BaseAPIModel):
                 content = choice.get("content")
 
         if isinstance(content, list):
-            # 多模内容仅抽取文本部分
+            # For multimodal content, only extract text segments.
             text_segments = []
             for segment in content:
                 if isinstance(segment, dict) and segment.get("type") == "text":
@@ -160,10 +162,10 @@ class GPTAPI(BaseAPIModel):
         if isinstance(content, str):
             return content
 
-        raise ValueError(f"无法从响应中解析内容。Choice: {choice}")
+        raise ValueError(f"Failed to parse content from response. Choice: {choice}")
 
     def _build_headers(self) -> Dict[str, str]:
-        """根据当前模型配置生成HTTP请求头"""
+        """Build HTTP headers for the current model configuration."""
         headers = {'Content-Type': 'application/json'}
         if self._use_custom_gateway:
             headers["model"] = self.model_name
@@ -178,7 +180,7 @@ class GPTAPI(BaseAPIModel):
                 max_tokens: int = 6000,
                 temperature: float = 0.6,
                 image: str = None) -> Tuple[str, str, str]:
-        """同步生成响应，支持限速和最多10次重试"""
+        """Generate a response synchronously (rate-limited, up to 10 retries)."""
         data = self._format_request_messages(messages, image, temperature, max_tokens)
         
         if self.top_k != -1: data['top_k'] = self.top_k
@@ -214,10 +216,10 @@ class GPTAPI(BaseAPIModel):
                 
             except Exception as e:
                 retries += 1
-                print(f'API调用异常: {e}。将在1秒后重试 (尝试 {retries}/{max_retries})')
+                print(f"API call failed: {e}. Retrying in 1s (attempt {retries}/{max_retries})")
                 time.sleep(1)
         
-        print(f'API调用达到最大重试次数({max_retries})后失败。')
+        print(f"API call failed after max retries ({max_retries}).")
         return 'wrong data', 'none', 'none'
 
     def infer(self, message: Union[str, Dict[str, str], List[Dict[str, str]]],
@@ -225,7 +227,7 @@ class GPTAPI(BaseAPIModel):
               history: List = None,
               sampling_params: Dict = None,
               temperature: float = 0.6) -> Tuple[str, str, str]:
-        """同步推理接口"""
+        """Synchronous inference interface."""
         messages = self.format_messages(message, history=history)
         return self.generate(messages=messages, max_tokens=max_tokens, temperature=temperature)
 
@@ -236,7 +238,7 @@ class GPTAPI(BaseAPIModel):
                            image: str = None,
                            url: str = None,
                            timeout: float = None) -> Tuple[str, str, str]:
-        """异步生成响应，支持限速和最多10次重试"""
+        """Generate a response asynchronously (rate-limited, up to 10 retries)."""
         timeout_value = timeout if timeout is not None else self.timeout
         target_url = url if url else self.url
         
@@ -274,11 +276,11 @@ class GPTAPI(BaseAPIModel):
                         
             except Exception as e:
                 retries += 1
-                print(f'异步API调用异常 ({target_url}): {e}。将在{backoff_time}秒后重试 (尝试 {retries}/{max_retries})')
+                print(f"Async API call failed ({target_url}): {e}. Retrying in {backoff_time}s (attempt {retries}/{max_retries})")
                 await asyncio.sleep(backoff_time)
                 backoff_time = min(backoff_time * 2, 30)
 
-        print(f'异步API调用达到最大重试次数({max_retries})后失败 ({target_url})。')
+        print(f"Async API call failed after max retries ({max_retries}) ({target_url}).")
         return 'wrong data', 'none', 'none'
 
     async def infer_async(self, message: Union[str, Dict[str, str], List[Dict[str, str]]],
@@ -287,7 +289,7 @@ class GPTAPI(BaseAPIModel):
                      sampling_params: Dict = None,
                      temperature: float = 0.6,
                      timeout: float = None) -> Tuple[str, str, str]:
-        """异步推理接口"""
+        """Asynchronous inference interface."""
         timeout_value = timeout if timeout is not None else self.timeout
         
         if isinstance(message, list) and all(isinstance(item, dict) for item in message):
@@ -308,7 +310,7 @@ class GPTAPI(BaseAPIModel):
                                max_concurrent: int = 15,
                                output_file: str = None,
                                timeout: float = None) -> Tuple[List[str], List[str], List[str]]:
-        """异步批量处理"""
+        """Asynchronous batched inference."""
         timeout_value = timeout if timeout is not None else self.timeout
         semaphore = asyncio.Semaphore(max_concurrent)
         formatted_messages = [self.format_messages(message) for message in messages]

@@ -4,67 +4,67 @@ from tqdm import tqdm
 
 def sample_random_jsonl(input_file_path: str, output_file_path: str, sample_size: int, random_seed: int):
     """
-    从指定的JSONL文件中随机采样指定数量的行，并保存到新文件。
+    Randomly sample a fixed number of lines from a JSONL file and write to a new file.
 
-    该函数采用两遍扫描法，内存效率高，适合处理大文件。
+    Uses a two-pass scan for memory efficiency (works well for large files).
 
     Args:
-        input_file_path (str): 输入的JSONL文件路径。
-        output_file_path (str): 输出的采样后JSONL文件路径。
-        sample_size (int): 需要采样的行数。
-        random_seed (int): 随机种子，用于保证结果可复现。
+        input_file_path: input JSONL file path
+        output_file_path: output JSONL file path
+        sample_size: number of lines to sample
+        random_seed: random seed for reproducibility
     """
-    print("--- 开始随机采样任务 ---")
-    print(f"  [配置] 输入文件: {input_file_path}")
-    print(f"  [配置] 输出文件: {output_file_path}")
-    print(f"  [配置] 采样数量: {sample_size}")
-    print(f"  [配置] 随机种子: {random_seed}")
+    print("--- Starting random sampling ---")
+    print(f"  [config] input:  {input_file_path}")
+    print(f"  [config] output: {output_file_path}")
+    print(f"  [config] sample_size: {sample_size}")
+    print(f"  [config] random_seed: {random_seed}")
 
-    # 确保输出目录存在
+    # Ensure output directory exists
     output_dir = os.path.dirname(output_file_path)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
     try:
-        # --- 第一遍：计算总行数 ---
-        print("\n[步骤 1/3] 正在计算输入文件总行数...")
+        # --- Pass 1: count total lines ---
+        print("\n[step 1/3] Counting total lines...")
         with open(input_file_path, 'r', encoding='utf-8') as f:
-            total_lines = sum(1 for _ in tqdm(f, desc="计数中"))
+            total_lines = sum(1 for _ in tqdm(f, desc="counting"))
         
-        print(f"文件总行数: {total_lines}")
+        print(f"Total lines: {total_lines}")
 
         if sample_size > total_lines:
-            print(f"警告: 采样数量 ({sample_size}) 大于文件总行数 ({total_lines})。将采样所有行。")
+            print(f"Warning: sample_size ({sample_size}) > total_lines ({total_lines}); sampling all lines.")
             sample_size = total_lines
 
-        # --- 第二遍：生成要采样的行号 ---
-        print("\n[步骤 2/3] 正在生成随机行号...")
+        # --- Pass 2: pick indices to sample ---
+        print("\n[step 2/3] Generating random indices...")
         random.seed(random_seed)
-        # 使用 random.sample 高效地获取不重复的随机索引
+        # Use random.sample to efficiently pick unique indices.
         indices_to_sample = random.sample(range(total_lines), k=sample_size)
-        # 将列表转换为集合，以获得O(1)的平均查找时间复杂度，极大提高效率
+        # Convert to a set for O(1) average membership checks.
         indices_to_sample_set = set(indices_to_sample)
-        print(f"已生成 {len(indices_to_sample_set)} 个唯一的待采样行号。")
+        print(f"Generated {len(indices_to_sample_set)} unique indices.")
 
-        # --- 第三遍：读取、采样并写入文件 ---
-        print("\n[步骤 3/3] 正在读取文件并写入采样数据...")
+        # --- Pass 3: write sampled lines ---
+        print("\n[step 3/3] Writing sampled lines...")
         lines_written = 0
         with open(input_file_path, 'r', encoding='utf-8') as infile, \
              open(output_file_path, 'w', encoding='utf-8') as outfile:
             
-            # 使用tqdm显示采样进度
-            for i, line in tqdm(enumerate(infile), total=total_lines, desc="采样中"):
+            # Progress bar via tqdm
+            for i, line in tqdm(enumerate(infile), total=total_lines, desc="sampling"):
                 if i in indices_to_sample_set:
                     outfile.write(line)
                     lines_written += 1
         
-        print(f"\n成功写入 {lines_written} 行到 '{output_file_path}'。")
-        print("--- 采样任务完成 ---")
+        print(f"\nWrote {lines_written} line(s) to '{output_file_path}'.")
+        print("--- Sampling complete ---")
 
     except FileNotFoundError:
-        print(f"错误: 输入文件 '{input_file_path}' 未找到。")
+        print(f"Error: input file not found: '{input_file_path}'")
     except Exception as e:
-        print(f"处理过程中发生未知错误: {e}")
+        print(f"Unexpected error while sampling: {e}")
 
 if __name__ == "__main__":
     INPUT_FILE = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/ori_data/NuminaMath_cot_extra_success.jsonl'
@@ -72,7 +72,7 @@ if __name__ == "__main__":
     SAMPLE_SIZE = 2000
     RANDOM_SEED = 42
 
-    # 调用采样函数
+    # Run
     sample_random_jsonl(
         input_file_path=INPUT_FILE,
         output_file_path=OUTPUT_FILE,

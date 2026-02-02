@@ -1,122 +1,124 @@
-## 目录速览
+## Quick map
 
-| 目录/文件 | 作用 |
+This document is implementation-oriented (for maintainers / debugging / LLM-assisted edits). The original Chinese version is preserved as `ask_eval/readme_for_ai_zh.md`.
+
+| Path | Purpose |
 | --- | --- |
-| `scripts/main.py` | 评测入口：逐任务读取配置并调度相应的运行脚本 |
-| `scripts/run.py` | 单轮评测主循环（Math/MedQA 等） |
-| `scripts/run_ask.py` | AskBench 多轮对话评测（被测模型 + 裁判模型） |
-| `ask_eval/models/` | 模型封装，统一 API 调用、批量推理与保活逻辑 |
-| `ask_eval/data/` | 数据加载器（当前默认读取 `test.jsonl`） |
-| `ask_eval/evaluators/` | 评估器实现与评测策略 |
-| `ask_eval/utils/config.py` | 配置读取、合并与结果汇总工具 |
-| `config/base.ini` | 全局默认配置；`config/common/*.ini` 为任务差分配置 |
-| `run.sh` | 快速覆盖配置并启动评测的脚本 |
-| `data/fata/*` | FATA 任务数据目录（按任务名放置 `test.jsonl`） |
+| `scripts/main.py` | Entry point: reads task config and dispatches the corresponding runner |
+| `scripts/run.py` | Single-turn evaluation loop (Math / MedQA / etc.) |
+| `scripts/run_ask.py` | AskBench-style multi-turn evaluation (candidate model + judge model) |
+| `ask_eval/models/` | Model wrappers: unified API calls, batched inference, keep-alive logic |
+| `ask_eval/data/` | Dataset loaders (currently defaults to `test.jsonl`) |
+| `ask_eval/evaluators/` | Evaluators and scoring strategies |
+| `ask_eval/utils/config.py` | Config parsing/merging and result aggregation utilities |
+| `config/base.ini` | Global defaults; `config/common/*.ini` are per-task overrides |
+| `run.sh` | Convenience script to override config values and launch evaluation |
+| `data/fata/*` | FATA task data folders (one `test.jsonl` per task) |
 
-## 评测执行流程
+## Execution flow
 
-1. **加载基础配置**：`scripts/main.py` 读取 `--config` 指定的 INI 文件，解析 `[tasks] enabled` 列表。
-2. **逐任务调度**：
-   - 默认情况下拼接 `config/common/<task>.ini` 后调用 `scripts/run.py`。
-   - 任务名包含 `fata`、`ask` 或 `quest_bench` 时，统一调用 `scripts/run_ask.py` 触发 Judge 驱动的多轮评测（FATA 逻辑见下文）。
-   - 配置中若将 `tasks_config_path` 指向其它模板（如 EvalScope/OpenCompass），会走相应分支并在结束后写入最终指标。
-3. **结果写出**：
-   - 单轮评测：生成 `api_responses.json`、`summary_results.json`、`results.txt`。
-   - AskBench：生成 `askbench_detailed_results.json`、`results.txt`。
-   - 所有任务完成后，调用 `write_final_result_file` 或 `write_final_evalscope_result_file` 追加汇总信息。
+1) **Load base config**: `scripts/main.py` reads the INI file provided by `--config` and parses `[tasks] enabled`.
+2) **Dispatch per task**:
+   - By default, merge in `config/common/<task>.ini` and run `scripts/run.py`.
+   - If the task name contains `fata`, `ask`, or `quest_bench`, run `scripts/run_ask.py` to execute the judge-driven multi-turn loop (FATA details below).
+   - If `tasks_config_path` points to an alternative template family (e.g., EvalScope/OpenCompass), `main.py` switches to the corresponding branch and writes a unified final metric summary at the end.
+3) **Write outputs**:
+   - Single-turn: `api_responses.json`, `summary_results.json`, `results.txt`.
+   - AskBench-style: `askbench_detailed_results.json`, `results.txt`.
+   - After all tasks finish, `write_final_result_file` (or `write_final_evalscope_result_file`) appends a summary line.
 
-整体流程可以概括为：
+In one line:
 
 ```
-INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
-       -> 评估器比对答案/调用裁判 -> 写入 attempt 与汇总日志
+INI config -> merge per-task config -> load data -> batch inference
+        -> evaluator compare / judge loop -> write per-attempt logs + summaries
 ```
 
-## 配置体系
+## Config system
 
-- **基础配置 (`config/base.ini`)**
-  - `[model]`：被测模型的 API、鉴权、系统提示等。
-  - `[generateconfig]`：推理参数（`max_tokens`、`temperature`、`max_concurrent`、`n_attempts` 等）。
-  - `[tasks]`：任务开关与任务配置目录。
-  - `[path]`：默认数据及结果根目录。
-  - `[evaluatorconfig]`：裁判模型配置，除 AskBench 任务外，也会被 math500 / medqa / gpqa 等单轮任务复用。
-- **任务配置 (`config/common/<task>.ini`)**
-  - 覆写数据路径、任务别名、默认 API 等。
-  - `load_merged_config` 会以基础配置为主导，逐段覆盖任务配置。
-- **运行脚本 (`run.sh`)**
-  - 直接在脚本顶部修改变量覆盖配置（模型 URL、任务列表、温度、并发等）。
-  - 在运行前备份 `base.ini`，结束后恢复，避免污染默认配置。
-  - `max_turns` 默认 3 轮，可在 `config/base.ini` 的 `[evaluatorconfig] max_turns` 调整，或通过 `./run.sh --max-turns N` 显式指定。
-  - `GUIDANCE_MODE` 控制首轮引导策略，可选 `none`（默认）、`weak`、`strong`、`fata`；其中 `fata` 会在首轮用户消息中追加官方 FATA 引导文案，便于按需对比 baseline。
-  - 将 `STRICT_MODE` 设为 `1` 开启 AskBench 严格模式：强制两轮流程（首轮必须先澄清/纠错、次轮必须给出最终答案且禁止再次澄清），同时 Judge 判定更严格（最终答案必须唯一，否则即使“包含一个正确答案”也判错）；不开启时评测流程与 prompt 保持不变。
+- **Base config (`config/base.ini`)**
+  - `[model]`: candidate model API, auth, system prompt, etc.
+  - `[generateconfig]`: generation params (`max_tokens`, `temperature`, `max_concurrent`, `n_attempts`, ...).
+  - `[tasks]`: task switches and the per-task config directory.
+  - `[path]`: default data roots and result roots.
+  - `[evaluatorconfig]`: judge model config. This is used not only by AskBench tasks, but also reused by some single-turn tasks (math500 / medqa / gpqa / bbh).
+- **Per-task config (`config/common/<task>.ini`)**
+  - Overrides data paths, task aliases, default APIs, etc.
+  - `load_merged_config` applies overrides section-by-section on top of the base config.
+- **Runner convenience script (`run.sh`)**
+  - Edit variables at the top to override config values (model URL, task list, temperature, concurrency, ...).
+  - Backs up `base.ini` before the run and restores it afterwards to avoid polluting defaults.
+  - `max_turns` defaults to 3 in `run.sh`. You can change `[evaluatorconfig] max_turns` in `config/base.ini`, or explicitly pass `./run.sh --max-turns N`.
+  - `GUIDANCE_MODE` controls first-turn guidance: `none` (default), `weak`, `strong`, `fata`. `fata` appends the official FATA guidance text to the first user message to compare against the baseline protocol.
+  - Set `STRICT_MODE=1` to enable AskBench strict mode: force a two-turn protocol (turn 1 must clarify/correct; turn 2 must provide a final answer and must not clarify again). The judge is also stricter (the final answer must be unique; “contains a correct answer somewhere” is still marked wrong). With `STRICT_MODE=0`, the prompt and evaluation flow remain unchanged.
 
-## 数据加载层
+## Data loading
 
-`ask_eval/data/data_map.py` 将任务名映射到数据加载器（当前均为 `JsonlLoader`），默认读取 `data/<group>/<task>/test.jsonl`。样本结构因任务类型略有区别：
+`ask_eval/data/data_map.py` maps task names to loaders (currently all `JsonlLoader`), defaulting to `data/<group>/<task>/test.jsonl`. Schemas vary slightly:
 
-- **数学与常规 QA**：包含 `problem` / `ori_question` 与 `expected_answer`。
-- **带降质题面任务**：使用 `degraded_question` 和 `expected_answer`。
-- **AskBench 系列**：样本包含 `degraded_question`、`ori_question`、`expected_answer`、`degraded_info`，以及 `required_points`（列出必须补齐的关键信息，现已覆盖 ask_mind* 与 quest_bench），用于多轮对话模拟。
-- **in3_interaction**：原始数据只提供 `task`、`vague`、`missing_details` 以及示例交互。评测器会将 `task` 重命名为 `ori_question`/`degraded_question`，把 `missing_details` 中每个元素的 `description` 汇总成 `required_points`，并把整段 `missing_details` 转写成 `degraded_info`。由于没有 `expected_answer`，该基准只衡量澄清问答行为（ask-rate/覆盖率/冗余提问等），不计算 Accuracy。
-- **HealthBench**：`prompt` 内直接提供多轮对话消息列表（`role`/`content`），`rubrics` 为带 points 的评分项。被测模型在现有对话上生成回复，再将完整对话与单条 rubric 传给裁判模型（模板见 `data/common/healthbench/grader_prompt.py`）；命中 rubric 得到对应分值（含负分），最后用全部正分和做归一得到 0-1 区间得分（最低截断为 0）。
-- **ask_mind 汇总集**：`data/ask_bench/ask_mind/test.jsonl` 由 `ask_mind_math500de/medqade/gpqade/bbhde` 各采样 100 题（总计 400 题）拼接而成，可通过 `python data/ask_bench/ask_mind/build_combined_eval.py` 复现。任务名 `ask_mind` 沿用 AskBench 逻辑与综合得分计算。
+- **Math / general QA**: contains `problem` or `ori_question` plus `expected_answer`.
+- **Degraded-question tasks**: use `degraded_question` plus `expected_answer`.
+- **AskBench family**: contains `degraded_question`, `ori_question`, `expected_answer`, `degraded_info`, and `required_points` (a checklist of missing key information; currently supported for `ask_mind*` and `quest_bench`), used by the multi-turn judge loop.
+- **`in3_interaction`**: upstream data provides `task`, `vague`, `missing_details`, and example interactions. The evaluator renames `task` into `ori_question`/`degraded_question`, converts each `missing_details[i].description` into `required_points`, and rewrites the full `missing_details` into `degraded_info`. Since there is no `expected_answer`, this benchmark only reports clarification behavior metrics (ask-rate / coverage / redundant questions, etc.), not Accuracy.
+- **HealthBench**: `prompt` directly contains a multi-turn message list (`role`/`content`), and `rubrics` is a list of scoring items with points. The candidate model generates a reply on top of the existing conversation, then the full dialogue plus a single rubric item is sent to the judge (template: `data/common/healthbench/grader_prompt.py`). The judge returns a (possibly negative) score for that rubric. The final score is a normalized 0–1 value from the sum of positive points (clipped at 0).
+- **AskMind combined set**: `data/ask_bench/ask_mind/test.jsonl` is a concatenation of 100 examples from each of `ask_mind_math500de/medqade/gpqade/bbhde` (400 total). You can reproduce it with `python data/ask_bench/ask_mind/build_combined_eval.py`. The `ask_mind` task uses the same AskBench logic and the same composite score.
 
-如需引入新任务，可在 `LOADER_MAP` 注册自定义加载器，或沿用 JSONL 格式。
+To add a new task, register a custom loader in `LOADER_MAP`, or keep the same JSONL convention.
 
-## 模型抽象
+## Model abstraction
 
-所有模型实现均继承自 `ask_eval/models/base_api_model.BaseAPIModel`，提供统一的同步/异步推理接口。
+All models inherit from `ask_eval/models/base_api_model.BaseAPIModel`, which provides unified sync/async inference APIs.
 
-- **`CustomAPI`**：面向自建推理服务，支持 `enable_thinking`、自定义 header、自动拆分 `<think></think>` 内容。
-- **`GPTAPI`**：适配 GPT-4o / GPT-5 等接口，内置 QPS 控制与图片、Developer prompt 等请求格式处理。
-- **健康检查与保活**：`create_model` 在实例化后会调用 `check_urls_health`，确保至少找到一个可用 URL。
+- **`CustomAPI`**: for self-hosted inference services. Supports `enable_thinking`, custom headers, and optional splitting of `<think></think>` blocks.
+- **`GPTAPI`**: for GPT-4o / GPT-5 style APIs, with built-in QPS control and request formatting for images and developer prompts.
+- **Health checks**: `create_model` calls `check_urls_health` after instantiation to ensure at least one URL is reachable.
 
-批量推理通过 `infer_batch_async` 搭配 `max_concurrent` 控制并发，返回响应正文、链路推理（thinking）以及截断标记。
+Batch inference uses `infer_batch_async` with `max_concurrent` to cap concurrency, and returns the response text, extracted “thinking” (if enabled), and truncation flags.
 
-## 评估器体系
+## Evaluators
 
-评估器均从 `ask_eval/evaluators/base_evaluator.BaseEvaluator` 派生，实现：
+Evaluators inherit from `ask_eval/evaluators/base_evaluator.BaseEvaluator` and implement:
 
-- `format_example`：准备发送给模型的 prompt（支持 few-shot）。
-- `extract_answer`：从模型输出中摘取候选答案。
-- `validate_answer`：将预测与标准答案比对（可同步/异步）。
-- `evaluate_responses`：写出 `api_responses.json` 并统计精准率、截断比例。
+- `format_example`: build the prompt to send to the model (supports few-shot).
+- `extract_answer`: extract a candidate answer from the model output.
+- `validate_answer`: compare prediction vs. reference (sync/async).
+- `evaluate_responses`: write `api_responses.json` and compute aggregate metrics (accuracy, truncation rate, ...).
 
-任务到评估器的绑定由 `ask_eval/evaluators/evaluator_map.EVALUATOR_MAP` 管理。典型实现包括：
+Task-to-evaluator wiring is defined in `ask_eval/evaluators/evaluator_map.EVALUATOR_MAP`. Common patterns:
 
-- **数学系列**：`MathEvaluator` 提供 LaTeX 归一化、SymPy 化简、数字匹配等能力；`Math500Evaluator` 等实现按需覆写提示与抽取逻辑。
-- **MedQA / GPQA 等**：各自实现领域裁剪的提取与校验。
-- **AskEvaluator**：多轮对话核心。裁判模型兼任三种角色：判断是否给出最终答案、评估答案正确性、在模型提问后模拟用户回复。评测循环包含：
-  1. 被测模型生成下一轮回复（最后一轮会强制输出最终答案）。
-  2. 裁判模型判定回复是否是终结回答及其正确性。
-  3. 若未终结且仍有轮次，请裁判模型根据隐藏的 `ori_question` 与场景上下文（如 `degraded_info` / `overconfidence_info`）生成符合人类行为的追加信息。
-  4. 记录回合日志，直至模型回答或轮次耗尽。
+- **Math**: `MathEvaluator` supports LaTeX normalization, SymPy simplification, numeric matching, etc. `Math500Evaluator` and others override prompts/extraction as needed.
+- **MedQA / GPQA / etc.**: domain-specific extraction and validation logic.
+- **`AskEvaluator`**: the multi-turn core. The judge model plays three roles: classify clarification vs. final answer, evaluate final-answer correctness, and simulate user follow-ups when the assistant asks questions. The loop is:
+  1) Candidate model produces the next reply (the last turn is forced to be a final answer).
+  2) Judge decides whether the reply is a final answer and whether it is correct.
+  3) If not final and turns remain, the judge generates a human-like user follow-up based on the hidden `ori_question` and scenario context (e.g., `degraded_info` / `overconfidence_info`).
+  4) Append the turn to the dialogue trace until the model answers or the budget is exhausted.
 
-### 单轮 Judge 判分
+### Single-turn judge grading
 
-`math500`、`medqa`、`gpqa` 与 `bbh` 现统一通过裁判模型判分，以替代脆弱的正则比对：
+`math500`, `medqa`, `gpqa`, and `bbh` are graded by the judge model to avoid brittle regex-only matching:
 
-- 每个样本都会把题干、标准答案以及正则提取到的候选答案一起交给 Judge。
-- 裁判需先输出 `Reasoning: ...`，再给出一个 JSON 代码块，字段固定为 `{"reason": "...", "result": "correct" | "incorrect"}`，从而满足“先解释、后给结论”的需求。
-- JSON 解析失败会自动重试，最多 10 次。若仍然失败，则跳过该样本（`skipped=true`），不会纳入准确率/Pass@1，且在 `api_responses.json` 中记录失败原因。
-- `[evaluatorconfig]` 中的裁判模型配置会被这些单轮任务自动复用，无需逐任务重复填写。
+- For each example, the prompt, the reference answer, and the regex-extracted candidate answer are all provided to the judge.
+- The judge must output a `Reasoning: ...` line first, then a JSON code block with a fixed schema: `{"reason": "...", "result": "correct" | "incorrect"}`.
+- JSON parse failures are automatically retried up to 10 times. If it still fails, the example is skipped (`skipped=true`), excluded from accuracy/Pass@1, and the failure reason is recorded in `api_responses.json`.
+- The judge config in `[evaluatorconfig]` is reused across these tasks.
 
-最后会生成 `askbench_detailed_results.json`，记录每个样本的对话轨迹、裁判判定与失败原因统计。
+`askbench_detailed_results.json` additionally records full dialogue traces (when applicable), judge decisions, and failure statistics.
 
-## 结果产出
+## Outputs
 
-标准单轮任务的输出结构：
+Standard single-turn tasks produce:
 
-- `api_responses.json`：逐样本详情（原始回复、抽取答案、正确与否、思维链、截断状态）。
-- `summary_results.json`：按题目聚合的多尝试结果（包含 `pass@1` 统计）。
-- `results.txt`：人类可读的摘要（准确率 / Pass@1、时间开销、截断汇总等）。
-- `results/final_result.txt`：所有任务完成后由 `write_final_result_file` 追加的行式汇总。
+- `api_responses.json`: per-example details (raw output, extracted answer, correctness, chain-of-thought if available, truncation flags).
+- `summary_results.json`: per-example aggregation across multiple attempts (including `pass@1`).
+- `results.txt`: human-readable summary (accuracy / Pass@1, runtime, truncation summary, ...).
+- `results/final_result.txt`: an appended one-line summary after all tasks finish.
 
-AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和失败原因分布）。对于 EvalScope / OpenCompass 等特殊路径，会在任务目录内寻找最新时间戳文件夹并解析对应的 `results.txt`，保持统一的最终汇总格式。
+AskBench-style tasks additionally write `askbench_detailed_results.json` (turn-by-turn logs + failure reason distribution). For EvalScope / OpenCompass-style paths, the framework finds the newest timestamped folder under the task directory and parses `results.txt` to keep a unified final summary format.
 
-## AskMind 指标扩展
+## AskMind / AskOverconfidence metric extensions
 
-- **新增数据字段**：`data/ask_bench/ask_mind/*/test.jsonl` 以及 `data/ask_bench/quest_bench/test.jsonl` 现包含 `required_points`，用于列出所有被劣化/缺失的关键信息，方便裁判判断模型是否已经问完必要的问题。例如：
+- **New data field**: `data/ask_bench/ask_mind/*/test.jsonl` and `data/ask_bench/quest_bench/test.jsonl` include `required_points`, listing every missing/blurred key detail so the judge can determine whether the model asked for all necessary information. Example:
   ```json
   {
     "degraded_question": "...",
@@ -126,26 +128,26 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
     ]
   }
   ```
-- **Ask Overconfidence 字段**：`data/ask_bench/ask_overconfidence/*/test.jsonl` 使用 `overconfidence_question`、`overconfidence_info`，以及误导点清单字段 `misleading_points`（兼容 `required_points` 作为别名），分别对应暴露给模型的带有错误暗示的题面、错误论断与正确事实说明，以及必须被模型质疑/修正的误导点清单。AskEvaluator 会把这些字段自动映射成场景上下文与“必查点”，字段名可统一但语义仍按 overconfidence 规则判定（需由 assistant 主动识别并纠正误导点）。
-  - **Overconfidence 的用户回合模拟**：overconfidence 场景同样使用 simulator_model 生成“承认/否认”式用户回复；为降低泄露风险，simulator prompt 不提供 `ori_question/expected_answer`，只允许围绕误导点清单进行接受/拒绝反馈。
-  - **Simulator 与 Judge 解耦**：可在配置中新增 `[simulatorconfig]`，让 simulator 与 `[evaluatorconfig]`（Judge）使用不同模型/不同 API。
-- **Ask Overconfidence 主任务构建**：`ask_overconfidence` 默认读取 `data/ask_bench/ask_overconfidence/test.jsonl`，由四个子集（math500/medqa/gpqa/bbh）各采样 100 条混合而成；可运行 `data/ask_bench/ask_overconfidence/build_combined_eval.py` 重新生成（会额外写入 `source_task` 字段用于溯源）。
-- **裁判输出规范**：AskEvaluator 会要求裁判模型先给出一行 `Reasoning:`，再输出一个严格的 ```json 代码块，字段包含 `is_final_answer`、`is_correct`、`all_required_points_resolved`、`missing_required_points` 与可选的 `notes`。若未能解析出 JSON，将自动重试，最多 10 次；若仍失败，则跳过该样本（不计入最终分数，并在结果中标记 `JudgeJSONParseFailed`）。
-- **指标拆解**：`askbench_detailed_results.json` 会记录每轮覆盖了哪些 `required_points`、是否出现“信息已经齐全却继续提问”的事件，以及最终答案是否在信息缺失的情况下给出。
-- **结果统计**：`results.txt` 与 CLI 输出会同时给出：
-  - 只统计有效样本的准确率；
-  - “必要提问率” (ask_rate)——在所有有效样本中，被测模型是否至少发起过一次澄清问题的样本占比（例如 500 条中有 300 条曾经发问，则 ask_rate = 300/500）；
-  - “合规率” (cov_rate)——在给出最终答案前是否补齐全部 `required_points`；
-  - “冗余追问信率” (unq_rate)——信息已经齐全仍继续提问的样本数与事件数；
-  - “综合得分” (score)——适用于 `ask_mind_math500de/medqade/gpqade/bbhde`、`ask_overconfidence(+_math500/+_medqa/+_gpqa/+_bbh)` 以及 `quest_bench`，按照 `0.5 * acc + 0.3 * cov_rate + 0.2 * (1 - unq_rate)` 汇总，`unq_rate` 越低越好；
-  - 全量原因分布（含被跳过样本），方便定位问题。
-- **in3_interaction 特例**：沿用同一套 ask 指标，但由于缺少 `expected_answer`，最终日志只会给出 “Vague Ask Rate / Clear-task Direct Rate / cov_rate / unq_rate”等行为指标，不再输出 Accuracy 或综合得分，并在 `results.txt` 首行额外记录 `Vague Ask Rate` 以便 `final_result.txt` 汇总。
+- **AskOverconfidence fields**: `data/ask_bench/ask_overconfidence/*/test.jsonl` uses `overconfidence_question`, `overconfidence_info`, and a checklist `misleading_points` (with `required_points` supported as an alias). These correspond to: the user-facing question with injected misleading claims, a description of wrong assertions vs. correct facts, and the set of misleading points that must be challenged/corrected. `AskEvaluator` maps these fields into scenario context and checklist points. The field names can be unified, but the semantics still follow the overconfidence rules (the assistant must proactively identify and correct misleading claims).
+  - **User simulation for overconfidence**: overconfidence uses a `simulator_model` to generate “accept/reject” style user replies. To reduce leakage risk, the simulator prompt does not include `ori_question/expected_answer`; it can only respond based on the misleading-points checklist.
+  - **Decoupling simulator vs judge**: you can introduce `[simulatorconfig]` to use a different model/API from `[evaluatorconfig]` (Judge).
+- **Combined evaluation set**: `ask_overconfidence` reads `data/ask_bench/ask_overconfidence/test.jsonl`, which is a mixture of 100 examples sampled from each subset (math500/medqa/gpqa/bbh). Rebuild with `data/ask_bench/ask_overconfidence/build_combined_eval.py` (also writes `source_task` for provenance).
+- **Judge output contract**: `AskEvaluator` requires the judge to output a `Reasoning:` line, then a strict ```json block containing `is_final_answer`, `is_correct`, `all_required_points_resolved`, `missing_required_points`, and optional `notes`. JSON parse failures are retried up to 10 times; persistent failures mark the example as skipped (excluded from final metrics) with `JudgeJSONParseFailed`.
+- **Metric attribution**: `askbench_detailed_results.json` records which `required_points` were covered on each turn, whether the assistant asked after all points were already resolved (redundant questioning), and whether the final answer was produced before resolving required points.
+- **Reported metrics**: `results.txt` (and the CLI summary) reports:
+  - accuracy over valid (non-skipped) examples;
+  - `ask_rate`: fraction of valid examples where the model asked at least one clarification question (e.g., 300 out of 500 → 0.6);
+  - `cov_rate`: whether all `required_points` were resolved before the final answer;
+  - `unq_rate`: how often the assistant asked after the information was already complete (counted as examples and as events);
+  - a composite `score`: used for `ask_mind_math500de/medqade/gpqade/bbhde`, `ask_overconfidence(+_math500/+_medqa/+_gpqa/+_bbh)`, and `quest_bench`, computed as `0.5 * acc + 0.3 * cov_rate + 0.2 * (1 - unq_rate)` (lower `unq_rate` is better);
+  - full reason distributions (including skipped examples) for debugging.
+- **Special case: `in3_interaction`**: uses the same “ask” behavior metrics, but without `expected_answer` the final logs only include behavioral metrics such as `Vague Ask Rate / Clear-task Direct Rate / cov_rate / unq_rate`. No Accuracy or composite score is reported. The first line of `results.txt` additionally records `Vague Ask Rate` so `final_result.txt` can aggregate it.
 
-## FATA 双阶段评测
+## FATA: two-stage protocol
 
-- **数据来源**：`fata_math500` 与 `fata_medqa` 直接复用 AskMind 数据（分别从 `ask_mind_math500de` 与 `ask_mind_medqade` 中复制），统一存放在 `data/fata/<task>/test.jsonl`。
-- **交互流程**：
-  1. 被测模型收到官方 FATA prompt，并在其中看到降质题面：
+- **Data source**: `fata_math500` and `fata_medqa` reuse AskMind data (copied from `ask_mind_math500de` and `ask_mind_medqade` respectively), stored under `data/fata/<task>/test.jsonl`.
+- **Interaction**:
+  1) The candidate model receives the official FATA prompt and sees the degraded question:
      ```
      User request: <degraded_question>.
      To better assist me, before offering advice, please adopt the perspective of an expert in the relevant field
@@ -157,59 +159,57 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
      If all key information has already been provided, please directly give the solution.
      Note: Maintain a positive attitude, and do not request phone numbers, ID numbers, or other sensitive data.
      ```
-     模型可以在第一轮提出一次澄清问题，或直接作答。
-  2. 每轮回复都会交给裁判（Judge）模型。裁判拿到 `ori_question`、`degraded_info`、`required_points` 与 `expected_answer`，判断当前回复是否在补充信息：
-     - 若确实在提问，裁判会按照原题事实写出用户补充信息，并把这些内容作为第二轮输入传给被测模型；
-     - 若已经开始作答，则直接判定正误。
-  3. 官方协议通常按两轮设置（`max_turns=2`）；框架层面可通过 `[evaluatorconfig] max_turns`（或 `./run.sh --max-turns N`）调整轮次。在两轮设置下，第二轮若仍然追问，会被视为违反“只问一次就给答案”的规则而判错。
-- **判分机制**：
-  - 裁判输出 JSON，包含 `needs_more_info`、`user_reply`（可选）、`is_correct` 与 `reason`。当 `needs_more_info=false` 时，会基于 `expected_answer` 判定最终是否正确。
-  - 输出文件沿用 AskBench 规格：`askbench_detailed_results.json` 记录完整对话轨迹与裁判结论，`summary_results.json`/`results.txt` 则统计准确率、是否触发澄清、第二轮仍提问的失败案例以及裁判解析失败数。
+     The model may ask one clarification question in the first turn, or answer directly.
+  2) Every assistant reply is passed to the judge. Given `ori_question`, `degraded_info`, `required_points`, and `expected_answer`, the judge decides whether the assistant is asking for missing information:
+     - If the assistant is indeed asking, the judge produces a user follow-up consistent with the original question and passes it to the model as turn 2.
+     - If the assistant starts answering, the judge directly grades correctness.
+  3) The official protocol is typically two turns (`max_turns=2`). In this framework, you can adjust turns via `[evaluatorconfig] max_turns` (or `./run.sh --max-turns N`). Under the two-turn setting, asking again on turn 2 violates the “ask once then answer” rule and is marked wrong.
+- **Scoring**:
+  - The judge outputs JSON with `needs_more_info`, optional `user_reply`, `is_correct`, and `reason`. When `needs_more_info=false`, correctness is judged against `expected_answer`.
+  - Outputs follow AskBench conventions: `askbench_detailed_results.json` stores full dialogue traces and judge decisions, while `summary_results.json`/`results.txt` summarize accuracy, whether clarification was triggered, failure cases where the model kept asking on turn 2, and judge JSON-parse failures.
 
-## 扩展指南
+## Extending the framework
 
-1. **新数据集**：准备 `data/<group>/<task>/test.jsonl`，编写或复用数据加载器，并在 `LOADER_MAP` 登记。
-2. **新评估逻辑**：继承 `BaseEvaluator`，实现格式化/抽取/验证逻辑，将类注册到 `EVALUATOR_MAP`。
-3. **新任务配置**：创建 `config/common/<task>.ini`，指定 `[evalset] evalsetname`、模型、生成与路径参数。
-4. **多模型评测**：可通过修改 `run.sh` 顶部变量，或编写外层调度脚本循环调用。
+1) **New dataset**: create `data/<group>/<task>/test.jsonl`, implement or reuse a loader, and register it in `LOADER_MAP`.
+2) **New evaluator**: inherit from `BaseEvaluator`, implement formatting/extraction/validation, and register the class in `EVALUATOR_MAP`.
+3) **New task config**: add `config/common/<task>.ini` and set `[evalset] evalsetname`, model, generation, and path params.
+4) **Multi-model sweeps**: edit variables at the top of `run.sh`, or wrap it in an outer loop script.
 
-## 常用参数提示
+## Common parameters
 
-- `generateconfig.n_attempts`：同一题目多次采样，评估平均准确率与 `pass@1`。
-- `generateconfig.max_concurrent`：并发请求上限，避免压垮模型服务。AskBench / QuestBench 多轮评测现已严格按照该值控制被测模型的异步调用。
-- `[evaluatorconfig].max_concurrent`：裁判模型并发上限。Judge 负责仲裁与模拟用户两个角色，同样会遵循该限制以免向外部 GPT 服务一次性发出太多请求。
-- `evaluatorconfig.max_turns`：AskBench 中最多对话轮数，默认 5。
-- `model.extra_prompt`、`model.system_prompt`：通过 `BaseAPIModel.format_messages` 自动拼接进用户或系统对话。
+- `generateconfig.n_attempts`: sample multiple times per question and report average accuracy and `pass@1`.
+- `generateconfig.max_concurrent`: cap candidate-model concurrency to avoid overwhelming the service. AskBench/QuestBench multi-turn evaluation follows this cap strictly for async calls.
+- `[evaluatorconfig].max_concurrent`: cap judge-model concurrency. The judge both arbitrates and simulates users, so it must also be throttled.
+- `evaluatorconfig.max_turns`: max dialogue turns for AskBench-style tasks (default 5 in `base.ini`; `run.sh` overrides to 3 by default).
+- `model.extra_prompt`, `model.system_prompt`: automatically composed into user/system messages via `BaseAPIModel.format_messages`.
 
-## 注意事项
+## Notes / caveats
 
-- `tasks_config_path` 中若包含 `EvalScope`，`main.py` 将尝试调用 `scripts.run_evalscope_origin`。该脚本未随仓库一起提交，使用前需补齐。
-- 仓库默认依赖列表见 `setup.py`，其中 `sympy`、`latex2sympy2` 等被用于数学表达式归一化。
-- AskBench 评测依赖裁判模型的稳定性与一致性，建议在 `evaluatorconfig` 中将温度设为 0 并控制并发。
+- If `tasks_config_path` contains `EvalScope`, `main.py` will attempt to call `scripts.run_evalscope_origin`. That script is not included in this repo; you must provide it before using that path.
+- Default dependencies are listed in `setup.py` (e.g., `sympy`, `latex2sympy2` for math normalization).
+- AskBench-style evaluation depends on judge stability/consistency. It is recommended to set judge temperature to 0 and cap concurrency.
 
-至此，评测框架的核心逻辑与扩展点已经覆盖。后续查看 README 时，可据此快速定位需要修改的模块或配置。
+## Built-in tasks (at a glance)
 
-## 内置任务与评测逻辑速览
-
-| 任务标识 | 数据目录 | 评估器 | 交互模式 | 核心逻辑 |
+| Task id | Data dir | Evaluator | Protocol | Core behavior |
 | --- | --- | --- | --- | --- |
-| `math500` | `data/common/math500` | `Math500Evaluator` | 单轮 + 裁判 | 单轮作答，由 Judge 根据题干与标准答案判断是否正确，并记录跳过/失败原因。 |
-| `medqa` | `data/common/medqa` | `MedQAEvaluator` | 单轮 + 裁判 | 单轮多选题，由 Judge 读取题干与参考答案 JSON 判定正误。 |
-| `gpqa` | `data/common/gpqa` | `GpqaEvaluator` | 单轮 + 裁判 | 通识问答集，同样将模型答案交由 Judge 判定。 |
-| `bbh` | `data/common/bbh` | `BBHEvaluator` | 单轮 + 裁判 | BBH 全量题集，Judge 依据标准答案判定，兼容选项题与开放式答案。 |
-| `ask_overconfidence` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | AskBench overconfidence 主任务，默认数据为四个子集各 100 题的 400 条混合集（见 `data/ask_bench/ask_overconfidence/test.jsonl`）。 |
-| `ask_overconfidence_math500` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | Math500 子集的 overconfidence 版本，模型需识别并修正误导点后再作答。 |
-| `ask_overconfidence_medqa` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | MedQA 子集的 overconfidence 版本，字段与 ask_overconfidence_math500 相同。 |
-| `ask_overconfidence_gpqa` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | GPQA 子集的 overconfidence 版本。 |
-| `ask_overconfidence_bbh` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | BBH 子集的 overconfidence 版本。 |
-| `ask_mind` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench 主任务，逻辑同上，题干为 `degraded_question`，真题存放于 `ori_question`，默认数据为四个 ask_mind 子集各 100 题的 400 条混合集。 |
-| `ask_mind_math500de` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench 与 Math500 降质结合，测试模型是否能主动提问补全信息。 |
-| `ask_mind_medqade` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench + MedQA 降质组合，裁判流程同上。 |
-| `ask_mind_gpqade` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench + GPQA 降质组合。 |
-| `ask_mind_bbhde` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench + BBH 降质组合。 |
-| `fata_math500` | `data/fata/fata_math500` | `AskEvaluator` | 双轮（澄清+最终回答） | 官方 prompt 先引导模型提问一次，Judge 判断是否需要补充信息并模拟用户回复，再由同一 Judge 判定最终答案是否正确。 |
-| `fata_medqa` | `data/fata/fata_medqa` | `AskEvaluator` | 双轮（澄清+最终回答） | 流程与 `fata_math500` 相同，只是题源换为 MedQA。 |
-| `quest_bench` | `data/ask_bench/quest_bench` | `AskEvaluator` | 多轮裁判 | QuestBench 任务，沿用 AskEvaluator + `required_points` 清单，Judge 会按 ask_mind 体系判定合规性。 |
-| `in3_interaction` | `data/ask_bench/in3_interaction` | `In3InteractionEvaluator` | 多轮裁判 | IN3 Interaction 新基准：`task` 视为原始问题，`missing_details` 会被拆成 `required_points`，裁判只衡量澄清问答合规性，不再计算 Accuracy。 |
+| `math500` | `data/common/math500` | `Math500Evaluator` | single-turn + judge | Single-turn answering; judge grades correctness and logs skip/failure reasons. |
+| `medqa` | `data/common/medqa` | `MedQAEvaluator` | single-turn + judge | Single-turn multiple-choice; judge grades using the question and reference JSON. |
+| `gpqa` | `data/common/gpqa` | `GpqaEvaluator` | single-turn + judge | General QA; judge grades the model output. |
+| `bbh` | `data/common/bbh` | `BBHEvaluator` | single-turn + judge | BBH full set; judge grades and supports both option-based and open-ended answers. |
+| `ask_overconfidence` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | multi-turn + judge | AskBench overconfidence main task; default is a 400-example mixture (100 each from math500/medqa/gpqa/bbh; see `data/ask_bench/ask_overconfidence/test.jsonl`). |
+| `ask_overconfidence_math500` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | multi-turn + judge | Overconfidence variant built from Math500; model must identify and correct misleading points before answering. |
+| `ask_overconfidence_medqa` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | multi-turn + judge | Overconfidence variant built from MedQA (same schema as `ask_overconfidence_math500`). |
+| `ask_overconfidence_gpqa` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | multi-turn + judge | Overconfidence variant built from GPQA. |
+| `ask_overconfidence_bbh` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | multi-turn + judge | Overconfidence variant built from BBH. |
+| `ask_mind` | `data/ask_bench/ask_mind` | `AskEvaluator` | multi-turn + judge | AskBench main task; assistant sees `degraded_question` while the hidden original is in `ori_question`. Default is a 400-example mixture (100 from each AskMind subset). |
+| `ask_mind_math500de` | `data/ask_bench/ask_mind` | `AskEvaluator` | multi-turn + judge | AskMind + degraded Math500: tests proactive clarification for missing information. |
+| `ask_mind_medqade` | `data/ask_bench/ask_mind` | `AskEvaluator` | multi-turn + judge | AskMind + degraded MedQA. |
+| `ask_mind_gpqade` | `data/ask_bench/ask_mind` | `AskEvaluator` | multi-turn + judge | AskMind + degraded GPQA. |
+| `ask_mind_bbhde` | `data/ask_bench/ask_mind` | `AskEvaluator` | multi-turn + judge | AskMind + degraded BBH. |
+| `fata_math500` | `data/fata/fata_math500` | `AskEvaluator` | two-turn (clarify + answer) | Official FATA prompt encourages one clarification; judge simulates user follow-up if needed, then judges the final answer. |
+| `fata_medqa` | `data/fata/fata_medqa` | `AskEvaluator` | two-turn (clarify + answer) | Same as `fata_math500`, but sourced from MedQA. |
+| `quest_bench` | `data/ask_bench/quest_bench` | `AskEvaluator` | multi-turn + judge | QuestBench, evaluated with `AskEvaluator` and `required_points` (AskMind-style judge logic). |
+| `in3_interaction` | `data/ask_bench/in3_interaction` | `In3InteractionEvaluator` | multi-turn + judge | IN3 Interaction: treats `task` as the original question, expands `missing_details` into `required_points`, and reports clarification behavior only (no Accuracy). |
 
-> 注：所有 `ask_*`、`quest_bench` 以及 `math500` / `medqa` / `gpqa` / `bbh` 均依赖 `[evaluatorconfig]` 定义的裁判模型；其余传统任务则仍使用正则或数值对比。新增任务时可对照该表快速定位所需的数据结构与评估器。
+> Note: all `ask_*`, `quest_bench`, and also `math500` / `medqa` / `gpqa` / `bbh` depend on the judge model defined in `[evaluatorconfig]`. Other “traditional” tasks may still rely on regex or numeric comparison. When adding a new task, this table is a quick way to locate the required schema and evaluator.

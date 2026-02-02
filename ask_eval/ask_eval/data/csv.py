@@ -5,7 +5,7 @@ import os
 from .base import BaseDataLoader
 
 class CsvLoader(BaseDataLoader):
-    """CSV文件基础加载器"""
+    """Basic CSV file loader."""
     def __init__(self, data_dir: str, filename: str = "test.csv"):
         super().__init__(data_dir)
         self.filename = filename
@@ -16,22 +16,22 @@ class CsvLoader(BaseDataLoader):
         return df.to_dict('records')
 
 class MultiCsvLoader(BaseDataLoader):
-    """多CSV文件加载器"""
+    """Loader for multiple CSV files."""
     def __init__(self, data_dir: str, filenames: Optional[List[str]] = None):
         super().__init__(data_dir)
         self.filenames = filenames
 
     def _get_all_csv_files(self) -> List[str]:
-        """获取目录下所有CSV文件"""
+        """List all CSV files in the data directory."""
         return [f for f in os.listdir(self.data_dir) if f.endswith('.csv')]
 
     def load_data(self) -> Dict[str, List[Dict]]:
-        """加载所有CSV文件"""
+        """Load all CSV files."""
         filenames = self.filenames or self._get_all_csv_files()
         all_data = {}
         
         for filename in filenames:
-            name = os.path.splitext(filename)[0]  # 移除.csv后缀
+            name = os.path.splitext(filename)[0]  # strip the .csv suffix
             file_path = os.path.join(self.data_dir, filename)
             if os.path.exists(file_path):
                 df = pd.read_csv(file_path)

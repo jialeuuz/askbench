@@ -1,0 +1,210 @@
+# data_pipeline（readme_for_ai）
+
+这份文档偏向“给开发/维护这个 pipeline 的人（或 LLM）看的实现说明”。如果你只想快速跑通数据生成，请优先看 `README.md`。
+
+与论文（`paper.pdf`）对应关系：
+- **AskMind（intent-deficient）**：`degraded_question` + `required_points`，对应缺失信息的 rubric/checkpoints
+- **AskOverconfidence（misleading claims）**：`overconfidence_question` + `misleading_points`，对应误导断言的 rubric/checkpoints
+- **Judge loop**：策略内部的“覆盖自检 + 裁判判断 +（必要时）强制修正”，用于离线构造可控的多轮轨迹
+
+---
+
+## 数据构建流水线（Data Pipeline）
+
+一个基于异步并发与可插拔策略（strategies）的数据构建流水线，用于从原始问答样本生成多轮对话训练数据，或直接答案+修正的数据。支持：
+- 大文件 JSONL 的流式读取，避免内存爆炸
+- 断点续跑：自动跳过已处理（成功/失败）样本
+- 批量并发调用自定义 Chat Completions 接口
+- 失败样本记录与持久化，便于后续重跑
+
+
+## 目录结构
+- `main.py`：主入口。读取输入、批调 API、断点续跑、分批保存
+- `strategies.py`：核心策略实现（多轮对话、直接回答+修正等）
+- `post_api.py`：自定义 API 客户端（OpenAI Chat Completions 兼容）
+- `prompt_loader.py`：加载 `prompts.txt` 中的模板
+- `prompts.txt`：所有 Prompt 模板（以 `template_` 开头）
+- `main_queue.py`、`run_queue.sh`：多任务并行调度（可选）
+- `tools/`：JSONL 合并、采样、转换的小工具
+- `utils/`：通用 API 基类与 URL 健康检查
+
+
+## 环境准备
+- Python 3.9+
+- 安装依赖：
+  - `pip install -r requirements.txt`
+  - 依赖：`requests`、`aiohttp`、`tqdm`
+- 需要可用的 Chat Completions API（OpenAI 兼容返回：`choices[0].message.content`）
+
+
+## 输入与输出格式
+输入文件：JSONL，每行一个样本，建议至少包含：
+```json
+{
+  "id": "可选；缺失时自动按内容生成确定性哈希ID",
+  "ori_question": "原始问题",
+  "expected_answer": "标准答案",
+  "solution": "可选，解析/思路；用于强制修正时参考"
+}
+```
+
+输出文件：JSONL（成功样本）。不同策略输出字段不同，常见字段：
+- `conversation_history`：多轮对话列表，元素如 `{ "role": "user|assistant", "content": "..." }`
+- `degraded_question`、`degraded_info`、`required_points`：策略内部生成的劣化问题/缺失点
+
+失败文件：与输出同名追加 `_failed` 后缀，JSONL。每条含 `_failure` 元信息：
+```json
+"_failure": {
+  "step": "失败步骤名",
+  "reason": "失败原因/解析异常",
+  "attempts": 2,
+  "response_preview": "可选，截断的模型回复"
+}
+```
+
+
+## 如何运行（单任务）
+编辑 `main.py` 末尾的常量，或在其他脚本中调用 `main()`：
+
+关键参数：
+- `STRATEGY`：策略名（见下文）
+- `INPUT_FILE`：输入 JSONL 路径
+- `OUTPUT_FILE`：输出 JSONL 路径（失败样本将写入同名 `_failed.jsonl`）
+- `API_URLS`：Chat Completions 接口列表（并发轮询）
+- `API_TYPE`：模型名/类型，传给服务端 `model` 字段
+- `API_TOKEN`：可选鉴权 Token
+- `PROMPTS_FILE`：Prompt 模板文件，默认 `prompts.txt`
+- `MAX_CONCURRENT_REQUESTS`：最大并发请求数
+- `TIMEOUT`：单请求最大超时秒数
+- `BATCH_SIZE`：分批大小（建议按服务端限流配置合理设置）
+- `ID_KEY`：样本唯一键名，默认 `id`
+- `REPROCESS_FAILED`：是否重跑历史失败样本（默认否）。也可用环境变量控制：`REPROCESS_FAILED=1`。
+
+示例（直接运行 `main.py` 内置配置）：
+```bash
+python main.py
+```
+
+示例（在你自己的脚本中调用）：
+```python
+import asyncio
+from main import main
+
+asyncio.run(main(
+    strategy="generate_multi_turn_degraded_training_data",
+    input_file="/path/to/input.jsonl",
+    output_file="/path/to/output.jsonl",
+    prompts_file="prompts.txt",
+    api_urls=["http://host:port/v1/chat/completions"],
+    api_type="default",
+    api_token="none",
+    max_concurrent_requests=200,
+    timeout=3600,
+    batch_size=1000,
+    id_key="id",
+    reprocess_failed=False,
+))
+```
+
+
+## 策略说明（strategies）
+当前内置策略均返回二元组：(成功样本列表, 失败样本列表)。
+
+1) `generate_degraded_question_and_info`
+- 输入：`ori_question`、`expected_answer`
+- 输出：为每条样本生成 `degraded_question`、`degraded_info`、`required_points`
+- 常作为劣化类多轮策略的前置步骤
+
+2) `generate_overconfidence_question_and_info`
+- 输入：`ori_question`、`expected_answer`
+- 输出：构造 `overconfidence_question`（一个独立、自然的用户提问：准确保留原题givens，但在推导/解释层面加入自信却错误的断言，不改变题面条件与数值），`overconfidence_info`（记录每条断言的错误值与正确值及影响）、`misleading_points`
+- 用于过度自信场景的多轮策略前置步骤；标准答案仍对应原题，不受错误断言影响
+
+3) `generate_multi_turn_degraded_training_data`
+- 目标：在劣化问法场景下生成完整多轮对话（追问 → 用户模拟 → 覆盖自检 → 答案 → Judge → 强制修正）
+- `required_points` 驱动每一轮的澄清项，`solution` 字段若存在会用于强制修正提示
+
+4) `generate_multi_turn_overconfidence_training_data`
+- 目标：针对“用户口吻过于自信但推导/解释错误（不改变题目条件）”的场景生成多轮对话，围绕 `misleading_points` 质询与纠偏
+- 对齐 ask_eval 的 overconfidence 设定：用户侧不提供新信息/不负责纠错（仅对 assistant 的纠错做接受/拒绝式回复），需由 assistant 主动指出并修正误导点后再给出最终答案
+
+5) `strategy_direct_answer_and_correct`
+- 目标：先直接生成答案，再判断；若错误则基于 `expected_answer` 和可选 `solution` 重构为“完美答案”，输出最终对话
+- 流程更短，适用于无需多轮追问的场景
+
+
+## 开发提示（新增/改造策略）
+- 统一约定：策略函数均为 `async def xxx(api_client, data, templates, ...) -> (completed_items, failed_items)`，并返回“成功样本列表 + 失败样本列表”。
+- 多轮策略优先复用 `strategies._run_multi_turn_strategy(...)`，减少重复实现（Ask→SimUser→Coverage→Answer→Judge→ForceCorrect）。
+- `prompts.txt` 里新增模板时，确保模板名以 `template_` 开头且用三引号 `'''...'''` 包裹，`prompt_loader.load_prompts()` 才能解析。
+- 模板变量注入发生在 `strategies._run_batch_step_with_retry()`：
+  - 新增变量时在这里补齐 `format_args`；同时注意 `_safe_format()` 只会替换“已知 key”，避免模板里的 JSON 花括号触发 `str.format` 的 KeyError。
+- JSON schema 解析/校验：
+  - 劣化/overconfidence 生成依赖 `_parse_question_variant_json_response()` 抽取 JSON 并校验 key 是否齐全。
+  - 覆盖自检依赖 `_parse_coverage_json_response()`，裁判依赖 `_parse_judge_json_response()`。
+  - 解析失败会自动重试；仍失败会写入 `_failed.jsonl` 并附带 `_failure.response_preview` 便于定位 Prompt 问题。
+
+
+## Prompt 模板
+本 pipeline 的多轮「用户模拟 / 裁判」Prompt 以 `ask_eval` 的 AskEvaluator **非严格模式（STRICT_MODE=0）** 为准，确保训练数据构造逻辑与评测逻辑一致：
+- missing_info（degraded）：`template_simulate_user_reply` / `template_judge_answer`
+- overconfidence：`template_overconfidence_simulate_user_reply` / `template_overconfidence_judge_answer`
+
+对齐参考见：`ask_eval/ask_eval/evaluators/ask.py` 中的 `SIMULATOR_PROMPT_TEMPLATE`、`OVERCONFIDENCE_SIMULATOR_PROMPT_TEMPLATE`、`ARBITER_EVALUATOR_PROMPT_TEMPLATE`、`ARBITER_EVALUATOR_PROMPT_TEMPLATE_OVERCONFIDENCE`。
+
+### 模板可用变量（除样本字段外）
+除样本本身字段外，`strategies._run_batch_step_with_retry()` 会自动注入一些便捷字段，你可以在 `prompts.txt` 里直接使用：
+- `conversation_history_text`：把 `conversation_history` 格式化为多行 `role: content` 文本
+- `assistant_message`：对话中最后一条 assistant 消息（overconfidence simulator 使用）
+- `assistant_question`：同 `assistant_message`（按“问题”使用，missing_info simulator 使用）
+- `scenario_question`：优先 `overconfidence_question` → `degraded_question` → `ori_question`
+- `scenario_context`：优先 `overconfidence_info` → `degraded_info` → `""`
+- `checklist_header`：checklist 标题（missing_info / overconfidence 两套，和 `ask_eval` 一致）
+- `required_points_text`：把 checklist 点格式化为编号列表（为空时会给默认提示）
+- `user_internal_knowledge`：JSON 字符串（包含 `my_real_question` / `scenario_context` / `scenario_type` / `checklist_header` / `checklist_points`）
+
+模板统一放在 `prompts.txt`，格式：
+```
+template_xxx = '''
+...你的模板内容...
+'''
+```
+主要模板名（部分）：
+- `template_generate_degraded_question_and_info`
+- `template_generate_overconfidence_question_and_info`
+- `template_assistant_ask_first_question`
+- `template_assistant_ask_follow_up_question`
+- `template_assistant_ask_all_remaining`
+- `template_simulate_user_reply`
+- `template_coverage_check`
+- `template_overconfidence_assistant_ask_first_question`
+- `template_overconfidence_assistant_ask_follow_up_question`
+- `template_overconfidence_assistant_ask_all_remaining`
+- `template_overconfidence_simulate_user_reply`
+- `template_overconfidence_coverage_check`
+- `template_generate_final_answer`
+- `template_generate_overconfidence_final_answer`
+- `template_judge_answer`
+- `template_overconfidence_judge_answer`
+- `template_direct_answer`
+- `template_judge_direct_answer`
+- `template_reconstruct_answer`
+
+
+## 并行调度（可选）
+- `run_queue.sh` + `main_queue.py` 支持配置多条“串行任务队列”，并在进程级并行执行多个队列。
+- 使用前请在 `run_queue.sh` 中按需填写每个任务的 JSON（策略、输入/输出、API_URLS 等）。
+- 注意：`main.py` 已支持 `batch_size`、`id_key`、`reprocess_failed` 等新参数；如需在队列调度中使用，请同步扩展 `main_queue.py` 的参数传递逻辑。
+
+
+## 常见问题
+- 程序秒退且无新增输出？
+  - 可能全部样本已在输出或失败文件中处理过。开启 `REPROCESS_FAILED=1` 可重跑失败项。
+- 解析失败较多？
+  - 检查服务端返回是否是标准的 Chat Completions 结构；或根据日志里的 `response_preview` 调整 Prompt。
+- 429/限流？
+  - 降低 `MAX_CONCURRENT_REQUESTS`，减小 `BATCH_SIZE`，或按需增加 `API_URLS`。
+
+
+## 免责声明
+请确保你已获得调用目标 API 的授权，并遵守相关服务条款与安全规范。

@@ -45,7 +45,7 @@ class BBHEvaluator(JudgeEvaluatorMixin, BaseEvaluator):
         return f"{category_prefix}{question.strip()}{suffix}"
 
     def extract_answer(self, response: str) -> str:
-        """直接返回模型原文，不做正则提取。"""
+        """Return the raw model output (no regex-based extraction)."""
         if not response or response == "Error":
             return "Error"
         return response.strip()

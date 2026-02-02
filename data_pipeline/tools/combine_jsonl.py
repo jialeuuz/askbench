@@ -1,22 +1,22 @@
 def merge_jsonl(input_paths, output_path):
     """
-    将一个或多个 JSONL 文件合并到一个输出文件中。
+    Merge one or more JSONL files into a single output file.
 
     Args:
-        input_paths (list): 包含输入文件路径的列表。
-        output_path (str): 输出文件的路径。
+        input_paths (list): list of input file paths
+        output_path (str): output file path
     """
-    print(f"正在将 {len(input_paths)} 个文件合并到 {output_path}...")
+    print(f"Merging {len(input_paths)} file(s) into {output_path}...")
     with open(output_path, 'w', encoding='utf-8') as outfile:
         for path in input_paths:
             try:
                 with open(path, 'r', encoding='utf-8') as infile:
                     for line in infile:
                         outfile.write(line)
-                print(f"- 已添加: {path}")
+                print(f"- Added: {path}")
             except FileNotFoundError:
-                print(f"- 警告: 文件未找到，已跳过: {path}")
-    print("合并完成。")
+                print(f"- Warning: file not found, skipped: {path}")
+    print("Done.")
 
 
 if __name__ == '__main__':

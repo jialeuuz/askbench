@@ -31,13 +31,13 @@ Reasoning: <short explanation>
 
 
 class GpqaEvaluator(JudgeEvaluatorMixin, BaseEvaluator):
-    """评估输出格式的正确性"""
+    """Single-turn evaluator for GPQA with judge-model scoring."""
     def __init__(self, model, eval_config: Dict, judge_model=None, judge_config: Dict = None):
         super().__init__(model=model, eval_config=eval_config, judge_model=judge_model, judge_config=judge_config)
 
     def format_example(self, data: Dict, include_answer: bool = False, train_data: List[Dict] = None) -> str:
-        """格式化单个样例"""
-        # 构建选项字符串
+        """Format a single example into a prompt."""
+        # Build the choices block
         # prompt = f"What is the correct answer to this question: {data['question']}"
         # prompt += f"\n\nChoices:\n(A) {data['choice1']}\n(B) {data['choice2']}\n(C) {data['choice3']}\n(D) {data['choice4']}"
         # prompt += f"\n\nFormat your response as follows: \"The correct answer is (insert answer here)\""
@@ -56,7 +56,7 @@ D) {data['choice4']}
         return prompt
     
     def extract_answer(self, response: str) -> str:
-        """直接返回模型原文，不做任何正则提取。"""
+        """Return the raw model output (no regex-based extraction)."""
         if not response or response == "Error":
             return "Error"
         return response.strip()

@@ -14,7 +14,7 @@ import pickle
 from dataclasses import dataclass, field
 
 # =========================
-# 日志
+# Logging
 # =========================
 logging.basicConfig(
     level=logging.INFO,
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 # =========================
-# 断点续传
+# Checkpoint / resume
 # =========================
 class CheckpointManager:
     def __init__(self, checkpoint_file: str):
@@ -37,11 +37,11 @@ class CheckpointManager:
             try:
                 with open(p, "rb") as f:
                     data = pickle.load(f)
-                logger.info(f"加载断点文件: {self.checkpoint_file}")
-                logger.info(f"已完成: {data.get('completed_count', 0)} / {data.get('total_count', 0)}")
+                logger.info(f"Loaded checkpoint: {self.checkpoint_file}")
+                logger.info(f"Completed: {data.get('completed_count', 0)} / {data.get('total_count', 0)}")
                 return data
             except Exception as e:
-                logger.warning(f"加载断点失败: {e}，将创建新的断点")
+                logger.warning(f"Failed to load checkpoint: {e}. A new checkpoint will be created.")
                 return {}
         return {}
 
@@ -55,11 +55,11 @@ class CheckpointManager:
         p = Path(self.checkpoint_file)
         if p.exists():
             p.unlink()
-            logger.info("断点文件已清除")
+            logger.info("Checkpoint file cleared")
 
 
 # =========================
-# 数据结构
+# Data structures
 # =========================
 @dataclass
 class Sample:
@@ -76,7 +76,7 @@ class TaskItem:
 
 
 # =========================
-# API 调用器
+# API caller
 # =========================
 class LLMCaller:
     def __init__(self, api_url: str, model: str = "default"):
@@ -97,23 +97,23 @@ class LLMCaller:
                         return await resp.json()
                     except Exception as e:
                         txt = await resp.text()
-                        logger.error(f"JSON解析失败: {e}; 文本前500: {txt[:500]}")
+                        logger.error(f"JSON parse failed: {e}; first 500 chars: {txt[:500]}")
                         return None
                 else:
                     try:
                         txt = await resp.text()
-                        logger.error(f"API调用失败 status={resp.status}, body前500={txt[:500]}")
+                        logger.error(f"API call failed status={resp.status}, first 500 chars of body={txt[:500]}")
                     except Exception as e:
-                        logger.error(f"读取错误响应失败: {e}")
+                        logger.error(f"Failed to read error response: {e}")
                     return None
         except asyncio.TimeoutError as e:
-            logger.error(f"API调用超时: {e}")
+            logger.error(f"API call timed out: {e}")
             return None
         except aiohttp.ClientError as e:
-            logger.error(f"API连接错误: {e}")
+            logger.error(f"API connection error: {e}")
             return None
         except Exception as e:
-            logger.error(f"API未知异常: {e}")
+            logger.error(f"Unknown API error: {e}")
             return None
 
     async def chat(self, session: aiohttp.ClientSession, messages: List[Dict[str, str]],
@@ -133,21 +133,22 @@ class LLMCaller:
 
 
 # =========================
-# 答案提取逻辑（正则匹配）
+# Answer extraction (regex)
 # =========================
 def extract_answer_letter(text: str) -> Optional[str]:
     """
-    从文本中提取答案字母（A/B/C/D等）
-    支持多种格式：
+    Extract an answer letter (A/B/C/D, etc.) from text.
+
+    Supported formats include:
     - "The answer is D"
     - "The answer is: D"
     - "Answer: D"
-    - 最后一个出现的单个大写字母
+    - The last standalone uppercase letter in the text
     """
     if not text:
         return None
     
-    # 优先匹配标准格式
+    # Prefer standard patterns
     patterns = [
         r"(?:the\s+)?answer\s+is\s*:?\s*([A-Z])",  # The answer is D / Answer is: D
         r"(?:correct\s+)?(?:answer|choice|option)\s*:?\s*([A-Z])",  # Answer: D / Choice: D
@@ -159,7 +160,7 @@ def extract_answer_letter(text: str) -> Optional[str]:
         if match:
             return match.group(1).upper()
     
-    # 兜底：提取最后出现的单个大写字母（常见于末尾）
+    # Fallback: last standalone uppercase letter (often at the end)
     matches = re.findall(r'\b([A-Z])\b', text)
     if matches:
         return matches[-1]
@@ -169,7 +170,7 @@ def extract_answer_letter(text: str) -> Optional[str]:
 
 def check_answer(llm_response: str, expected_answer: str) -> Dict[str, Any]:
     """
-    直接用正则检查答案是否正确
+    Check correctness via regex-based answer extraction.
     """
     llm_letter = extract_answer_letter(llm_response)
     exp_letter = extract_answer_letter(expected_answer)
@@ -200,7 +201,7 @@ def check_answer(llm_response: str, expected_answer: str) -> Dict[str, Any]:
 
 
 # =========================
-# 业务逻辑（提示模板）
+# Business logic (prompt template)
 # =========================
 def build_infer_prompt(question: str) -> List[Dict[str, str]]:
     return [
@@ -210,7 +211,7 @@ def build_infer_prompt(question: str) -> List[Dict[str, str]]:
 
 
 # =========================
-# 文件写入（同步函数）
+# File writing (sync helper)
 # =========================
 def append_jsonl(path: str, rows: List[Dict[str, Any]]):
     if not rows:
@@ -223,7 +224,7 @@ def append_jsonl(path: str, rows: List[Dict[str, Any]]):
 
 
 # =========================
-# 主流水线
+# Main pipeline
 # =========================
 class Pipeline:
     def __init__(
@@ -232,11 +233,11 @@ class Pipeline:
         sample_times: int,
         success_output_file: str,
         failed_output_file: str,
-        # 生成配置
+        # Inference config
         inf_api_url: str,
         inf_model: str = "default",
         inf_max_concurrent: int = 100,
-        # 其他
+        # Other
         save_interval: int = 2000,
         use_checkpoint: bool = True,
         checkpoint_file: Optional[str] = None,
@@ -258,7 +259,7 @@ class Pipeline:
         self.max_retries_inf = max_retries_inf
         self.total_timeout_sec = total_timeout_sec
 
-        # 状态统计
+        # Stats
         self.total_tasks = 0
         self.success_count = 0
         self.failed_count = 0
@@ -268,7 +269,7 @@ class Pipeline:
 
         self.stats_lock = asyncio.Lock()
 
-        # 写盘相关
+        # Persistence buffers
         self.buffer_success: List[Dict] = []
         self.buffer_failed: List[Dict] = []
         self.persist_lock = asyncio.Lock()
@@ -279,7 +280,7 @@ class Pipeline:
     def _load_questions(self) -> List[Sample]:
         path = Path(self.input_file)
         if not path.exists():
-            logger.error(f"输入文件不存在: {self.input_file}")
+            logger.error(f"Input file not found: {self.input_file}")
             return []
         out: List[Sample] = []
         with open(path, "r", encoding="utf-8") as f:
@@ -295,8 +296,8 @@ class Pipeline:
                     if q and a:
                         out.append(Sample(q, a, meta))
                 except json.JSONDecodeError:
-                    logger.warning(f"跳过第{line_num}行无效JSON")
-        logger.info(f"加载了 {len(out)} 个问题")
+                    logger.warning(f"Skipping invalid JSON on line {line_num}")
+        logger.info(f"Loaded {len(out)} questions")
         return out
 
     def _expand_tasks(self, samples: List[Sample]) -> List[TaskItem]:
@@ -308,7 +309,7 @@ class Pipeline:
         return tasks
 
     async def _save_buffers_and_checkpoint(self, current_completed: int):
-        """异步保存"""
+        """Async save."""
         async with self.persist_lock:
             if self.buffer_success or self.buffer_failed:
                 bufs = self.buffer_success[:]
@@ -333,10 +334,10 @@ class Pipeline:
         all_tasks = self._expand_tasks(samples)
         self.total_tasks = len(all_tasks)
         if self.total_tasks == 0:
-            logger.error("没有可处理的任务")
+            logger.error("No tasks to process")
             return
 
-        # 断点恢复
+        # Resume from checkpoint
         start_completed = 0
         if self.use_checkpoint and self.checkpoint_manager and self.checkpoint_manager.checkpoint_data:
             ck = self.checkpoint_manager.checkpoint_data
@@ -346,9 +347,9 @@ class Pipeline:
 
             if start_completed > 0:
                 all_tasks = all_tasks[start_completed:]
-                logger.info(f"从断点恢复，跳过 {start_completed} 个任务，剩余任务: {len(all_tasks)}")
+                logger.info(f"Resuming from checkpoint: skipped {start_completed} tasks, remaining: {len(all_tasks)}")
 
-        # 预先清空输出文件（仅全新开始时）
+        # Pre-clear output files (only for a fresh run)
         if start_completed == 0:
             Path(self.success_output_file).parent.mkdir(parents=True, exist_ok=True)
             Path(self.failed_output_file).parent.mkdir(parents=True, exist_ok=True)
@@ -357,7 +358,7 @@ class Pipeline:
             with open(self.failed_output_file, "w"):
                 pass
 
-        # aiohttp 会话
+        # aiohttp session
         connector = aiohttp.TCPConnector(
             limit=self.inf_max_concurrent + 100,
             limit_per_host=self.inf_max_concurrent + 50,
@@ -372,16 +373,16 @@ class Pipeline:
             sock_read=3600
         )
 
-        # 信号量
+        # Semaphore
         inf_sem = Semaphore(self.inf_max_concurrent)
 
-        # 调用器
+        # Caller
         inf_caller = LLMCaller(self.inf_api_url, self.inf_model)
 
         start_t = time.time()
 
         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-            # 进度条
+            # Progress bar
             pbar = tqdm(
                 total=self.total_tasks,
                 initial=start_completed,
@@ -389,7 +390,7 @@ class Pipeline:
                 dynamic_ncols=True
             )
 
-            # 进度条更新协程
+            # Periodically update progress bar status
             async def tick_status():
                 while True:
                     await asyncio.sleep(0.2)
@@ -408,13 +409,13 @@ class Pipeline:
 
             status_task = asyncio.create_task(tick_status())
 
-            # ✅ 推理+判别合并的工人
+            # Worker: inference + regex check
             async def inf_worker(task: TaskItem):
                 retries = 0
                 content = None
                 error_msg = None
 
-                # 推理阶段（带重试）
+                # Inference phase (with retries)
                 while retries <= self.max_retries_inf:
                     async with inf_sem:
                         async with self.stats_lock:
@@ -441,7 +442,7 @@ class Pipeline:
                 async with self.stats_lock:
                     self.inf_done += 1
 
-                # 生成失败
+                # Inference failed
                 if content is None:
                     sample = task.sample
                     row = {
@@ -462,7 +463,7 @@ class Pipeline:
                     await maybe_save()
                     return
 
-                # ✅ 正则判别（无需额外API调用）
+                # Regex-based check (no extra API calls)
                 check_result = check_answer(content, task.sample.expected_answer)
                 is_correct = check_result.get("is_correct", False)
 
@@ -490,7 +491,7 @@ class Pipeline:
                 pbar.update(1)
                 await maybe_save()
 
-            # 保存去抖
+            # Debounced persistence
             async def maybe_save():
                 completed = self.success_count + self.failed_count
                 if (completed % self.save_interval == 0) or (completed == self.total_tasks):
@@ -501,36 +502,36 @@ class Pipeline:
                         finally:
                             self.save_in_progress = False
 
-            # ✅ 一次性创建所有任务
-            logger.info(f"开始创建 {len(all_tasks)} 个推理任务...")
+            # Create all tasks at once
+            logger.info(f"Creating {len(all_tasks)} inference tasks...")
             inf_tasks = [asyncio.create_task(inf_worker(t)) for t in all_tasks]
-            logger.info("所有推理任务已提交，开始并发执行...")
+            logger.info("All inference tasks submitted; running concurrently...")
 
-            # 等待所有任务完成
+            # Wait for completion
             await asyncio.gather(*inf_tasks)
 
-            # 停止状态协程
+            # Stop status task
             status_task.cancel()
             try:
                 await status_task
             except asyncio.CancelledError:
                 pass
 
-            # 收尾写出
+            # Final flush
             await self._save_buffers_and_checkpoint(self.success_count + self.failed_count)
             if self.use_checkpoint and (self.success_count + self.failed_count) == self.total_tasks:
                 self.checkpoint_manager.clear()
             pbar.close()
 
-        logger.info("采样完成!")
-        logger.info(f"成功样本数: {self.success_count}")
-        logger.info(f"失败样本数: {self.failed_count}")
-        logger.info(f"成功样本保存到: {self.success_output_file}")
-        logger.info(f"失败样本保存到: {self.failed_output_file}")
+        logger.info("Sampling finished!")
+        logger.info(f"Successful samples: {self.success_count}")
+        logger.info(f"Failed samples: {self.failed_count}")
+        logger.info(f"Successful samples saved to: {self.success_output_file}")
+        logger.info(f"Failed samples saved to: {self.failed_output_file}")
 
 
 # =========================
-# 同步入口
+# Sync entrypoint
 # =========================
 def run_pipeline(
     input_file: str,
@@ -564,7 +565,7 @@ def run_pipeline(
 
 
 # =========================
-# 脚本入口
+# Script entrypoint
 # =========================
 if __name__ == "__main__":
     INPUT_JSONL_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/train-medmcqa-clear-sample2w.jsonl"
@@ -581,7 +582,7 @@ if __name__ == "__main__":
         failed_output_file=FAILED_OUTPUT_FILE,
         inf_api_url=INF_API_URL,
         inf_model="default",
-        inf_max_concurrent=2000,     # 只需要一个并发数
+        inf_max_concurrent=2000,     # uses a single endpoint; only one concurrency value needed
         save_interval=10000,
         use_checkpoint=True,
         checkpoint_file=None,

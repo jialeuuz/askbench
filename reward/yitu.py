@@ -8,7 +8,7 @@ import json
 import re
 
 # -------------------------
-# 配置：API 端点与默认分数
+# Config: API endpoints and default scores
 # -------------------------
 API_URLS = [
     "http://10.80.13.230:8012/v1/chat/completions",
@@ -19,19 +19,19 @@ API_URLS = [
     # "http://10.80.13.117:8013/v1/chat/completions"
 ]
 
-# 相关代码我已经注释掉了，不用管ENV_FILE_PATH的值，只要配置API_URLS即可
+# NOTE: The .env loading logic below is currently commented out; you only need to configure API_URLS.
 ENV_FILE_PATH = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhouyang/verl_v5/.env"
 
-# 统一的失败默认（不再返回 0.0）
-DEFAULT_NON_FINAL_FAIL = -0.8  # 非最终轮：解析失败/异常时的保守负分
-DEFAULT_FINAL_FAIL = -1.0      # 最终轮：解析失败/异常时的保守负分
+# Unified fallback scores on failure (do not return 0.0).
+DEFAULT_NON_FINAL_FAIL = -0.8  # Non-final turns: conservative negative score on parse errors/exceptions
+DEFAULT_FINAL_FAIL = -1.0      # Final turn: conservative negative score on parse errors/exceptions
 
 
 # -------------------------
-# 工具：加载端点 & 解析 JSON
+# Utilities: load endpoints & parse JSON
 # -------------------------
 def load_api_urls_from_env(env_path: str = ENV_FILE_PATH, max_retries: int = 3, retry_delay: float = 1.0) -> List[str]:
-    """从 .env 文件读取 VLLM_BASE_URL（多行、逗号分隔均可），补齐 /v1/chat/completions"""
+    """Load VLLM_BASE_URL from a .env file (multi-line or comma-separated) and append /v1/chat/completions."""
     # for attempt in range(max_retries):
     #     try:
     #         if not os.path.exists(env_path):
@@ -44,7 +44,7 @@ def load_api_urls_from_env(env_path: str = ENV_FILE_PATH, max_retries: int = 3, 
     #         match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
     #         if match:
     #             url_content = match.group(1).strip()
-    #             url_content = re.sub(r'\s+', '', url_content)  # 去掉所有空白
+    #             url_content = re.sub(r'\s+', '', url_content)  # remove all whitespace
     #             urls = [u.strip() for u in url_content.split(',') if u.strip()]
 
     #             complete_urls = []
@@ -81,13 +81,15 @@ def load_api_urls_from_env(env_path: str = ENV_FILE_PATH, max_retries: int = 3, 
 
 def _extract_json(text: str) -> Optional[Dict[str, Any]]:
     """
-    容错解析：优先提取 ```json ... ``` 块；否则尝试整体 json.loads；
-    若结尾有多余字符，尝试截取首尾大括号做解析。
+    Fault-tolerant parsing:
+    - Prefer extracting a ```json ... ``` fenced block.
+    - Otherwise try json.loads(text).
+    - If trailing garbage exists, try slicing from the first '{' to the last '}'.
     """
     if not text:
         return None
 
-    # 1) 代码块
+    # 1) Code fence
     fence = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
     if fence:
         try:
@@ -95,13 +97,13 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
         except Exception:
             pass
 
-    # 2) 直接 JSON
+    # 2) Raw JSON
     try:
         return json.loads(text)
     except Exception:
         pass
 
-    # 3) 截取第一个 { 到最后一个 } 之间
+    # 3) Slice from first '{' to last '}'
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
@@ -114,12 +116,14 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
 
 
 # -------------------------
-# Chat 裁判：JSON-only
+# Judge call: JSON-only
 # -------------------------
 def call_llm_api_json(prompt: str, max_retries: int = 10, max_tokens: int = 16000) -> Optional[Dict[str, Any]]:
     """
-    调用裁判模型，要求只返回 JSON。内部做多端点重试和 JSON 容错解析。
-    失败返回 None，由上层负责给默认分。
+    Call the judge model and require JSON-only output.
+
+    This function retries across endpoints and uses fault-tolerant JSON parsing.
+    Returns None on persistent failure; the caller is responsible for fallback scoring.
     """
     for attempt in range(max_retries):
         try:
@@ -149,7 +153,7 @@ def call_llm_api_json(prompt: str, max_retries: int = 10, max_tokens: int = 1600
                 if parsed is not None:
                     return parsed
             else:
-                # 下一次重试换端点
+                # Retry on another endpoint next time.
                 time.sleep(0.2)
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
             time.sleep(0.2)
@@ -159,16 +163,16 @@ def call_llm_api_json(prompt: str, max_retries: int = 10, max_tokens: int = 1600
 
 
 # -------------------------
-# 文本整理
+# Text helpers
 # -------------------------
 def format_conversation_history(context: str) -> str:
     return context or "No previous conversation."
 
 
 # -------------------------
-# 非最终轮：两种模式
-# 1) checklist 模式（优先，使用 required_points）
-# 2) 兼容老模式（无 required_points，用离散档位直接让裁判打分）
+# Non-final turns: two modes
+# 1) Checklist mode (preferred; uses required_points)
+# 2) Legacy mode (no required_points; ask judge for a discrete score)
 # -------------------------
 def _evaluate_non_final_turn_checklist(
     ori_question: str,
@@ -179,13 +183,15 @@ def _evaluate_non_final_turn_checklist(
     response: str
 ) -> float:
     """
-    使用 required_points 作为 checklist。裁判仅负责判断逐点命中与是否提前给出最终答案；
-    分数在本函数中依据命中率/行为规则进行归并：{-2.0, -0.8, 0.8, 1.0}
+    Use required_points as a checklist.
+
+    The judge only decides: per-point hits and whether the assistant prematurely answered.
+    This function then maps the behavior into discrete scores: {-2.0, -0.8, 0.8, 1.0}.
     """
     conversation_history = format_conversation_history(context)
 
-    # 强约束 JSON Schema（不让裁判直接给 score，避免跑偏）
-    # hits 必须和 required_points 等长，每个元素 True/False
+    # Enforce a strict schema (do not let the judge output a score directly).
+    # hits must have the same length as required_points; each element is True/False.
     judge_prompt = f"""
 You will grade an assistant's message in an information-gathering turn of a multi-turn QA.
 
@@ -230,7 +236,7 @@ Return ONLY the following JSON object (no code fences, no extra text):
         hits = parsed.get("hits", [])
         irrelevant = bool(parsed.get("irrelevant_or_redundant", False))
 
-        # 基础合法性检查
+        # Basic validity checks
         if not isinstance(hits, list) or len(hits) != len(required_points):
             return DEFAULT_NON_FINAL_FAIL
 
@@ -240,16 +246,16 @@ Return ONLY the following JSON object (no code fences, no extra text):
         total = len(hits)
         covered = sum(1 for h in hits if bool(h))
 
-        # 评分规则（可按需微调）
+        # Scoring rules (tune if needed)
         if covered == 0:
-            # 一个点都没问到 → 差
+            # Asked about none of the required points → poor
             return -0.8
         elif covered == total:
-            # 全覆盖 → 优
+            # Covered all points → best
             return 1.0
         else:
-            # 部分覆盖 → 好
-            # 如果明显问了很多无关问题，也可在此降级为 -0.8（视需求决定）
+            # Partial coverage → good
+            # If the assistant asks many irrelevant questions, you can downgrade to -0.8 here (optional).
             return 0.8
 
     except Exception:
@@ -260,7 +266,8 @@ def _evaluate_non_final_turn_legacy(
     ori_question: str, degraded_info: str, current_question: str, context: str, response: str
 ) -> float:
     """
-    兼容老版：无 checklist 时，让裁判直接输出离散分（-2.0, -0.8, 0.8, 1.0），我们再做钳制。
+    Legacy compatibility: if no checklist is provided, ask the judge to output a discrete score
+    (-2.0, -0.8, 0.8, 1.0), then clamp it into the expected buckets.
     """
     conversation_history = format_conversation_history(context)
     prompt = f"""You are evaluating an AI assistant's response in a multi-turn conversation where information is missing.
@@ -294,7 +301,7 @@ Return ONLY JSON: {{"score": -2.0}} or {{"score": -0.8}} or {{"score": 0.8}} or 
 
     try:
         raw = float(parsed.get("score"))
-        # 钳制
+        # Clamp
         if raw <= -1.5:
             return -2.0
         elif raw <= -0.4:
@@ -315,12 +322,12 @@ def evaluate_non_final_turn(
     response: str,
     required_points: Optional[List[str]] = None,
 ) -> float:
-    """非最终轮评分入口：优先使用 checklist；无 checklist 时回退到老方式"""
+    """Non-final turn entry point: prefer checklist mode; fall back to legacy mode if no checklist is provided."""
     if not response or not response.strip():
-        return -2.0  # 空响应 = 关键失败
+        return -2.0  # Empty response = critical failure
 
     if not degraded_info and not required_points:
-        # 没有缺口信息无法评审，判关键失败
+        # Without any missing-info context, we cannot evaluate the turn.
         return -2.0
 
     if required_points and len(required_points) > 0:
@@ -343,14 +350,14 @@ def evaluate_non_final_turn(
 
 
 # -------------------------
-# 最终轮：JSON 评审
+# Final turn: JSON judging
 # -------------------------
 def evaluate_final_turn(expected_answer: str, current_question: str, context: str, response: str) -> float:
     """
-    让裁判只返回三类决策：
-      - still_asking → -2.0
-      - wrong        → -1.0
-      - correct      →  1.0
+    Ask the judge to return one of three decisions:
+      - still_asking -> -2.0
+      - wrong       -> -1.0
+      - correct     ->  1.0
     """
     if not response or not response.strip():
         return DEFAULT_FINAL_FAIL
@@ -397,13 +404,13 @@ Return ONLY JSON like: {{"decision": "still_asking"}} or {{"decision": "wrong"}}
 
 
 # -------------------------
-# 顶层：统一入口（支持 required_points）
+# Top-level entry (supports required_points)
 # -------------------------
 def compute_score_medical_qa(data_source, solution_str, ground_truth, extra_info=None, **kwargs) -> float:
     """
-    通用多轮 QA 奖励函数：
-      - 非最终轮：根据 required_points checklist 逐点命中给分；若无 checklist，走兼容老规则。
-      - 最终轮：只看是否还在追问/对错。
+    Generic multi-turn QA reward function:
+      - Non-final turns: score by required_points checklist hits; fall back to legacy rules if no checklist is provided.
+      - Final turn: only judge whether the assistant is still asking and whether the final answer is correct.
     """
     try:
         extra_info = extra_info or {}
@@ -414,15 +421,15 @@ def compute_score_medical_qa(data_source, solution_str, ground_truth, extra_info
         expected_answer = extra_info.get("expected_answer", "")
         current_question = extra_info.get("question", "")
         context = extra_info.get("context", "")
-        required_points = extra_info.get("required_points", None)  # 新字段：list[str]
+        required_points = extra_info.get("required_points", None)  # New field: list[str]
 
-        # 空响应直接关键失败
+        # Empty response: critical failure
         if not solution_str or not solution_str.strip():
             return -2.0 if not is_final_turn else DEFAULT_FINAL_FAIL
 
         if is_final_turn:
             if not expected_answer:
-                # 回退 ground_truth
+                # Fall back to ground_truth if expected_answer is missing.
                 expected_answer = ground_truth
             return evaluate_final_turn(
                 expected_answer=expected_answer,
@@ -431,7 +438,7 @@ def compute_score_medical_qa(data_source, solution_str, ground_truth, extra_info
                 response=solution_str
             )
 
-        # 非最终轮
+        # Non-final turn
         return evaluate_non_final_turn(
             ori_question=ori_question,
             degraded_info=degraded_info,
@@ -442,18 +449,18 @@ def compute_score_medical_qa(data_source, solution_str, ground_truth, extra_info
         )
 
     except Exception as e:
-        # 统一失败默认（不再返回 0.0）
+        # Unified failure fallback (do not return 0.0).
         import traceback; print(f"[compute_score_medical_qa] Error: {e}"); traceback.print_exc()
         is_final_turn = bool((extra_info or {}).get("is_final_turn", True))
         return DEFAULT_FINAL_FAIL if is_final_turn else DEFAULT_NON_FINAL_FAIL
 
 
-# 向后兼容别名
+# Backward-compatible alias
 compute_score_multiturn_qa = compute_score_medical_qa
 
 
 # -------------------------
-# 自测
+# Self-test
 # -------------------------
 if __name__ == "__main__":
     print("Testing API URLs loading...")

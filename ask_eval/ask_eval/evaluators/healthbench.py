@@ -11,7 +11,7 @@ from ask_eval.evaluators.judge_utils import MAX_JUDGE_JSON_RETRIES, parse_json_t
 
 
 class HealthBenchEvaluator(BaseEvaluator):
-    """单轮对话 + rubric 打分的 HealthBench 评估器。"""
+    """HealthBench evaluator: single-turn assistant reply + rubric-based grading."""
 
     requires_judge = True
     metric_label = "HealthBench Score"
@@ -28,7 +28,7 @@ class HealthBenchEvaluator(BaseEvaluator):
         self.grader_template = self._load_grader_template()
 
     def _load_grader_template(self) -> str:
-        """加载 data/common/healthbench/grader_prompt.py 中的模板。"""
+        """Load the grader prompt template from data/common/healthbench/grader_prompt.py."""
         template_path = Path(__file__).resolve().parents[2] / "data" / "common" / "healthbench" / "grader_prompt.py"
         if not template_path.exists():
             return ""
@@ -47,7 +47,7 @@ class HealthBenchEvaluator(BaseEvaluator):
         test_data: List[Dict],
         train_data: List[Dict] = None
     ) -> Tuple[List[str], List[str], List[str], List[Any]]:
-        """直接使用样本内的 prompt 作为对话历史调用模型。"""
+        """Call the model using the sample's prompt as the conversation history."""
         prompts = [sample.get("prompt", []) for sample in test_data]
         try:
             responses, thinking_processes, truncated_flags = await self.model.infer_batch_async(
@@ -89,7 +89,7 @@ class HealthBenchEvaluator(BaseEvaluator):
         }
 
     def _format_conversation(self, prompt_messages: Any, assistant_reply: str) -> Tuple[str, List[Dict[str, str]]]:
-        """将对话历史与模型回复串成 plain text，供 grader 使用。"""
+        """Convert history + assistant reply into plain text for the grader."""
         history: List[Dict[str, str]] = []
         if isinstance(prompt_messages, list):
             history.extend(prompt_messages)

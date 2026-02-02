@@ -1,39 +1,68 @@
-reward/yitu.py是意图缺失维度的reward代码
-将其放到/verl/verl/utils/reward_score目录下，同时修改该目录下的__init__.py，在def default_compute_score()函数中添加如下代码即可：
-    if data_source == 'medical_qa':
-        from .medical_qa import compute_score_medical_qa
-        return compute_score_medical_qa(
-            data_source=data_source,
-            solution_str=solution_str,
-            ground_truth=ground_truth,
-            extra_info=extra_info
-        )
-使用前需要在yitu.py开头API_URLS配置API，用的是a3b模型（Qwen3-30B-A3B-Instruct-2507）
-tools/process_data_for_yitu.py可以将data/17k_dapo_7b_reject_ask.jsonl数据转换为训练需要的格式在if __name__ == "__main__":配置参数即可
-reward/train.sh记录着我用的训练参数，不过不同机器参数配置要调整，比如batchsize之类的，意图缺失维度我测试下来可能用不到2k的上下文和8k的response，显存不够可以缩小一些
-训练趋势查看：
-1. 我写的monitor：if __name__ == "__main__":里配置参数即可，运行后是gradio网页
-2. tensorboard：tensorboard_log/verl_zjl：这里的tensorboard_log默认应该是位于/verl/tensorboard_log下，运行后也是个网页链接，点进去看就行，但是内容很多，我也在探索怎么用，我一般左边勾选模型，中间找到val-aux展开查看reward和score趋势
-    tensorboard --logdir /lpai/volumes/base-mindgpt-ali-sh-mix/zhouyang/verl_run/tensorboard_log
+`reward/yitu.py` implements the reward function for the **AskMind / missing-information** setting.
 
-tools/gradio_compare.py可以比较两个模型的输出，control F 搜索api1_input即可找到配置API位置或直接运行在gradio界面配置。
+## Integration (VERL)
 
-标准数据结构格式：
-    ori_question列：原始问题
-    expected_answer列：期望答案
-    pass_rate列：通过率（0.0到16.0,16.0表示16次全通过,都是整数只是存储为了浮点形式）
-    PS：这里部分数据有多余列比如degrade_info，建议不要使用，不确定这种数据是不是基于最新的data_pipeline构建的
+1) Copy `reward/yitu.py` into `/verl/verl/utils/reward_score/`.
+2) Edit `/verl/verl/utils/reward_score/__init__.py` and add the following branch inside `def default_compute_score()`:
 
-新版yitu训练出来的效果似乎较难拟合，分数比较低，可能是因为用的是数学，或许不应该换成其他类型的数据试试？
-孤狼维度可能也要换成其他类型的数据试试？
+```python
+if data_source == "medical_qa":
+    from .medical_qa import compute_score_medical_qa
+    return compute_score_medical_qa(
+        data_source=data_source,
+        solution_str=solution_str,
+        ground_truth=ground_truth,
+        extra_info=extra_info,
+    )
+```
 
+## Configuration
 
-https://huggingface.co/datasets/open-r1/DAPO-Math-17k-Processed
-RAR-med
-RAR-science
-Rubrics as Rewards: Reinforcement Learning Beyond Verifiable Domains
+- Before use, set `API_URLS` at the top of `yitu.py`. The setup in this repo uses an A3B judge model (Qwen3-30B-A3B-Instruct-2507).
 
-hostname -i查看服务器ip
+## Data preparation
 
-造数据模型：
-qwen3-235b-a22b-instruct-2507 
+- `tools/process_data_for_yitu.py` converts `data/17k_dapo_7b_reject_ask.jsonl` into the training format. Configure parameters under `if __name__ == "__main__":`.
+
+## Training
+
+- `reward/train.sh` contains one set of training arguments. You will likely need to adjust them for your hardware (e.g., batch size). For the missing-information dimension, you may not need a 2k context window and an 8k response; reduce them if you run out of VRAM.
+
+## Monitoring
+
+1) A custom monitor (Gradio): configure parameters under `if __name__ == "__main__":` and run it.
+2) TensorBoard: logs are under `tensorboard_log/verl_zjl` (often rooted at `/verl/tensorboard_log`). Example:
+
+```bash
+tensorboard --logdir /lpai/volumes/base-mindgpt-ali-sh-mix/zhouyang/verl_run/tensorboard_log
+```
+
+## Output comparison
+
+- `tools/gradio_compare.py` compares outputs from two models. Search for `api1_input` to configure APIs, or configure them directly in the Gradio UI.
+
+## Expected data schema (notes)
+
+- `ori_question`: original question
+- `expected_answer`: reference answer
+- `pass_rate`: number of passes (0.0–16.0; 16.0 means 16/16 passes; stored as float but conceptually integer)
+- Note: some datasets may contain extra columns (e.g., `degrade_info`). It is recommended not to rely on them if you are unsure whether they were produced by the latest `data_pipeline`.
+
+## Misc notes
+
+- The newer `yitu` setup may be harder to fit (lower scores). This may be because the data is math-heavy; consider trying other data types.
+- The “gulang” ("lone-wolf") dimension may also benefit from trying other data types.
+
+References / pointers:
+
+- `open-r1/DAPO-Math-17k-Processed` (dataset)
+- `RAR-med`, `RAR-science`
+- “Rubrics as Rewards: Reinforcement Learning Beyond Verifiable Domains”
+
+Networking:
+
+- `hostname -i` to get the server IP.
+
+Data generation model used in one setup:
+
+- `qwen3-235b-a22b-instruct-2507`

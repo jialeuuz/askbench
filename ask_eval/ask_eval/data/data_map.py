@@ -1,6 +1,6 @@
 from ask_eval.data.jsonl import JsonlLoader
 
-# 数据加载器映射
+# Dataset loader registry
 LOADER_MAP = {
     "math500": JsonlLoader,
     "medqa":JsonlLoader,

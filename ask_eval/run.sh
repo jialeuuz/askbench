@@ -1,55 +1,57 @@
 #!/bin/bash
-export PYTHONPATH='/Users/zhaojiale5/local_codes/askQ/ask_eval'
-# 如果任何命令失败，则立即退出
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
+# Exit immediately if any command fails.
 set -e
 
-# --- 默认文件路径 (相对于项目根目录) ---
+# --- Default file paths (relative to the project root) ---
 BASE_CONFIG_PATH="config/base.ini"
 MAIN_PY_PATH="scripts/main.py"
 DEFAULT_RESULTS_ROOT="results"
 
-# --- 参数配置与说明 ---
-# 直接在本脚本中修改以下变量，将覆盖 base.ini 中的对应值。
+# --- Parameters and notes ---
+# Editing variables in this script overrides the corresponding values in base.ini.
 
-# [可选] 模型 sk_token
-MODEL_SK_TOKEN="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzbFhwYnpMOHRHenhnY2dFdFh4azgxMzVIdUhuSGlZYiJ9.e6PbiPCLNvBoGDcbZmHYiWsk6VE9b9tvmoCoT_zVM4U"
-# [必需] 模型的 API URL
-# API_URL="http://api-hub.inner.chj.cloud/llm-gateway/v1"
+# [Optional] Model auth token (set via env var, or fill here)
+MODEL_SK_TOKEN="${MODEL_SK_TOKEN:-}"
+# [Required] Candidate model API URL
+# API_URL="http://host:port/v1"
 # MODEL_NAME="azure-gpt-4_1"
 # MODEL_NAME="gemini-2_5-pro"
-API_URL="http://10.80.12.150:8013/v1/chat/completions"
+API_URL="http://host:port/v1/chat/completions"
 MODEL_NAME="default"
-# [必需] 逗号分隔的任务列表
+# [Required] Comma-separated task list
 # math500,medqa,gpqa,bbh
 # quest_bench,in3_interaction
-# ask_mind,ask_overconfidence (四个子集各采样100条，共400)
+# ask_mind,ask_overconfidence (100 sampled from each subset, 400 total)
 # ask_mind_math500de,ask_mind_medqade,ask_mind_gpqade,ask_mind_bbhde
 # ask_overconfidence_math500,ask_overconfidence_medqa,ask_overconfidence_gpqa,ask_overconfidence_bbh
 # healthbench
 TASKS="healthbench"
-# [可选] 手动指定结果保存目录。若不指定，将根据模型和任务自动生成。
-SAVE_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/ask_eval/new_ask_results/qwen25_7b_confidence_a3b"
-# SAVE_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/results/qwen3_8b"
-# [可选] [evaluatorconfig] api_url
-# EVAL_API_URL="http://api-hub.inner.chj.cloud/llm-gateway/v1"
+# [Optional] Manually set the output directory. If empty, it will be auto-generated.
+SAVE_DIR=""
+# Example:
+# SAVE_DIR="/path/to/save_dir"
+# [Optional] [evaluatorconfig] api_url
+# EVAL_API_URL="http://host:port/v1"
 # EVAL_MODEL_NAME="azure-gpt-4_1"
-# [可选] 裁判模型 sk_token
-EVAL_SK_TOKEN="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzbFhwYnpMOHRHenhnY2dFdFh4azgxMzVIdUhuSGlZYiJ9.e6PbiPCLNvBoGDcbZmHYiWsk6VE9b9tvmoCoT_zVM4U"
+# [Optional] Judge model auth token (set via env var, or fill here)
+EVAL_SK_TOKEN="${EVAL_SK_TOKEN:-}"
 EVAL_MODEL_NAME="default"
-EVAL_API_URL="http://10.80.12.150:8014/v1/chat/completions,http://10.80.12.150:8015/v1/chat/completions"
-# [可选] [generateconfig] max_tokens
+EVAL_API_URL="http://host:port/v1/chat/completions"
+# [Optional] [generateconfig] max_tokens
 MAX_TOKENS=16000
-# [可选] [generateconfig] temperature
+# [Optional] [generateconfig] temperature
 TEMPERATURE="0.7"
-# [可选] [generateconfig] max_concurrent
+# [Optional] [generateconfig] max_concurrent
 GEN_MAX_CONCURRENT=100
-# [可选] [evaluatorconfig] max_concurrent
+# [Optional] [evaluatorconfig] max_concurrent
 EVAL_MAX_CONCURRENT=100
-# [可选] 首轮引导模式：none/weak/strong/fata
+# [Optional] First-turn guidance mode: none/weak/strong/fata
 GUIDANCE_MODE="none"
-# [可选] AskBench 严格模式：0/1（默认 0）。开启后将启用更严格的 Judge 判定与两轮流程约束。
+# [Optional] AskBench strict mode: 0/1 (default 0). When enabled, uses stricter judge rules and enforces a two-turn protocol.
 STRICT_MODE="0"
-# [可选] 最大对话轮次：默认 3。可通过命令行参数覆盖：./run.sh --max-turns 4
+# [Optional] Max dialogue turns (default 3). Override via CLI: ./run.sh --max-turns 4
 MAX_TURNS="3"
 
 print_usage() {
@@ -62,12 +64,12 @@ Options:
 EOF
 }
 
-# --- 命令行参数解析（优先级高于脚本内变量） ---
+# --- CLI args (higher priority than in-script variables) ---
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --max-turns|-t)
             if [[ -z "${2:-}" ]]; then
-                echo "错误: --max-turns 需要一个整数参数" >&2
+                echo "Error: --max-turns requires an integer argument" >&2
                 exit 1
             fi
             MAX_TURNS="$2"
@@ -78,7 +80,7 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            echo "错误: 未知参数: $1" >&2
+            echo "Error: unknown argument: $1" >&2
             print_usage >&2
             exit 1
             ;;
@@ -86,23 +88,23 @@ while [[ $# -gt 0 ]]; do
 done
 
 if ! [[ "${MAX_TURNS}" =~ ^[0-9]+$ ]] || [[ "${MAX_TURNS}" -lt 1 ]]; then
-    echo "错误: --max-turns 必须是 >= 1 的整数，当前为: ${MAX_TURNS}" >&2
+    echo "Error: --max-turns must be an integer >= 1 (got: ${MAX_TURNS})" >&2
     exit 1
 fi
 
-# STRICT_MODE 会强制两轮（与评测器内部逻辑保持一致）
+# STRICT_MODE forces a 2-turn protocol (aligned with the evaluator’s internal logic).
 if [[ "${STRICT_MODE}" == "1" ]] && [[ "${MAX_TURNS}" != "2" ]]; then
     echo "[STRICT_MODE] Overriding --max-turns: ${MAX_TURNS} -> 2" >&2
     MAX_TURNS="2"
 fi
 
-# --- 校验必需参数 ---
+# --- Validate required args ---
 if [ -z "${API_URL}" ] || [ -z "${TASKS}" ]; then
-    echo "错误: 请在 run.sh 顶部配置 API_URL 与 TASKS。"
+    echo "Error: please configure API_URL and TASKS at the top of run.sh."
     exit 1
 fi
 
-# --- 自动生成 save_dir (如果未手动指定) ---
+# --- Auto-generate save_dir (if not set) ---
 if [ -z "${SAVE_DIR}" ]; then
     MODEL_ID=$(echo "${API_URL}" | sed -n 's#.*//\([^/]*\).*#\1#p' | tr '.' '_' | tr ':' '_')
     TASK_SUFFIX=$(echo "${TASKS}" | tr ',' '_')
@@ -111,15 +113,15 @@ if [ -z "${SAVE_DIR}" ]; then
     SAVE_DIR="${DEFAULT_RESULTS_ROOT}/${AUTO_SAVE_DIR_NAME}"
 fi
 
-# --- 打印执行配置 ---
+# --- Print run config ---
 echo "---"
-echo "准备执行评估任务..."
+echo "Preparing evaluation run..."
 echo "API URL:            ${API_URL}"
-echo "任务列表:           ${TASKS}"
-echo "结果保存目录:       ${SAVE_DIR}"
+echo "Tasks:              ${TASKS}"
+echo "Output dir:          ${SAVE_DIR}"
 echo "---"
-echo "将覆盖以下 base.ini 参数:"
-# <-- 修改点4: 更新打印信息，使其更清晰，并使用新变量名
+echo "Will override these base.ini keys:"
+# Note: keep the output readable; hide tokens.
 [ ! -z "${EVAL_API_URL}" ]        && echo "  [evaluatorconfig] api_url: ${EVAL_API_URL}"
 [ ! -z "${MODEL_SK_TOKEN}" ]      && echo "  [model] sk_token:            ****(hidden)"
 [ ! -z "${EVAL_SK_TOKEN}" ]       && echo "  [evaluatorconfig] sk_token:  ****(hidden)"
@@ -134,15 +136,15 @@ echo "将覆盖以下 base.ini 参数:"
 [ ! -z "${STRICT_MODE}" ]         && echo "  [ask_evaluator] strict_mode:         ${STRICT_MODE}"
 echo "---"
 
-# --- 修改配置文件 ---
-echo "正在修改配置文件: ${BASE_CONFIG_PATH}"
+# --- Update config file ---
+echo "Updating config file: ${BASE_CONFIG_PATH}"
 cp "${BASE_CONFIG_PATH}" "${BASE_CONFIG_PATH}.bak"
 
 update_config() {
     local section="$1"
     local key="$2"
     local value="$3"
-    # 使用 awk 安全地更新 ini 文件；若键不存在会自动追加到该 section 尾部
+    # Safely update an INI key via awk. If the key does not exist, append it to the end of the section.
     awk -v s="[${section}]" -v k="${key}" -v v="${value}" '
         BEGIN {in_section=0; updated=0}
         $0 == s {
@@ -179,7 +181,7 @@ update_config "model" "api_url" "${API_URL}"
 update_config "tasks" "enabled" "${TASKS}"
 update_config "path" "save_dir" "${SAVE_DIR}"
 
-# <-- 修改点5: 这是最核心的修改，将 "evaluator_url" 改为 "api_url"，并使用新变量
+# Core change: update evaluator key name from "evaluator_url" to "api_url".
 [ ! -z "${EVAL_API_URL}" ]        && update_config "evaluatorconfig" "api_url" "${EVAL_API_URL}"
 [ ! -z "${MODEL_SK_TOKEN}" ]      && update_config "model" "sk_token" "${MODEL_SK_TOKEN}"
 [ ! -z "${EVAL_SK_TOKEN}" ]       && update_config "evaluatorconfig" "sk_token" "${EVAL_SK_TOKEN}"
@@ -191,20 +193,20 @@ update_config "path" "save_dir" "${SAVE_DIR}"
 [ ! -z "${EVAL_MAX_CONCURRENT}" ] && update_config "evaluatorconfig" "max_concurrent" "${EVAL_MAX_CONCURRENT}"
 [ ! -z "${MAX_TURNS}" ]           && update_config "evaluatorconfig" "max_turns" "${MAX_TURNS}"
 
-echo "配置文件修改完成。"
+echo "Config update done."
 echo "---"
 
-# --- 运行主程序 ---
-echo "正在启动评估脚本: ${MAIN_PY_PATH}"
+# --- Run ---
+echo "Launching evaluation script: ${MAIN_PY_PATH}"
 export GUIDANCE_MODE
 export STRICT_MODE
 python "${MAIN_PY_PATH}" --config "${BASE_CONFIG_PATH}"
 
-# --- 恢复配置文件 ---
+# --- Restore config file ---
 mv "${BASE_CONFIG_PATH}.bak" "${BASE_CONFIG_PATH}"
 
 echo "---"
-echo "评估任务执行完毕。"
-echo "结果已保存至: ${SAVE_DIR}"
-echo "配置文件 ${BASE_CONFIG_PATH} 已从备份中恢复。"
+echo "Evaluation finished."
+echo "Results saved to: ${SAVE_DIR}"
+echo "Config file ${BASE_CONFIG_PATH} restored from backup."
 echo "---"

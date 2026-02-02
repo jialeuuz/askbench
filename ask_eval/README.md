@@ -1,22 +1,25 @@
-# ask_eval 评测框架说明
+# ask_eval: Evaluation Pipeline
 
-readme记录着评测框架的架构信息，run.sh是评测的入口。
+`ask_eval` is a unified evaluation scaffold for both:
 
-本仓库提供了一套针对多模任务的统一评测脚手架，既支持传统单轮基准（Math500、MedQA 等），也支持 AskBench 等由裁判模型驱动的多轮对话评测。本文档旨在快速梳理整体架构、关键模块与使用方式，方便后续查阅。
+- **Single-turn benchmarks** (e.g., Math500, MedQA, GPQA, BBH), and
+- **Judge-driven multi-turn protocols** (e.g., AskBench-style interactive evaluation), where a judge model both grades final answers and simulates user follow-ups when the tested model asks for clarification.
 
-## 快速开始
+This README focuses on how to install and run the evaluation pipeline. For implementation details and code pointers, see `ask_eval/readme_for_ai.md`. A Chinese copy of the original documentation is preserved as `ask_eval/README_zh.md`.
+
+## Quickstart
 
 ```bash
-# 1. 安装依赖（建议使用虚拟环境）
+# 1) Install dependencies (virtualenv recommended)
 pip install -e .
 
-# 2. 按需修改基础配置
+# 2) Edit the base config as needed
 vim config/base.ini
 
-# 3. 启动评测（示例）
+# 3) Run evaluation (example)
 python scripts/main.py --config config/base.ini
-# 或者使用 run.sh：先在 run.sh 顶部修改变量，再直接运行
+# Or use run.sh: edit variables at the top, then run
 ./run.sh
 ```
 
-运行结束后，结果会写入 `results/<task>/<task_name>/`，并追加汇总条目到 `results/final_result.txt`。
+After the run finishes, outputs are written to `results/<task>/<task_name>/`, and a summary line is appended to `results/final_result.txt`.

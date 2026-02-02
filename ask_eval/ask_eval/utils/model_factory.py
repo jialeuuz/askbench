@@ -9,7 +9,7 @@ from ask_eval.models.api.custom import CustomAPI
 from ask_eval.models.api.gpt import GPTAPI
 import asyncio
 
-# 配置日志输出到终端
+# Configure logging to stdout
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -17,30 +17,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 存储活跃模型的全局变量
+# Globals for active models
 _active_models = []
 _keepalive_thread = None
 _stop_keepalive = False
 
 KEEPALIVE_PROMPT = (
-    "Hello, this is a keepalive message but please respond strictly in Chinese. "
-    "已知 $f ( x )=2 \\operatorname{s i n} \\frac{\\pi x} {3}, g ( x )=\\frac{1} {x-6}$，"
-    "则 $f ( x )=g ( x )$ 在 $[-8, 2 0 ]$ 上所有根的和为多少？"
+    "Hello! This is a lightweight keepalive ping. Please respond with a short acknowledgement."
 )
 KEEPALIVE_MESSAGES = [{"role": "user", "content": KEEPALIVE_PROMPT}]
 
 def _keepalive_worker(interval_minutes=1):
     """
-    后台工作线程，定期为所有活跃模型的所有URL发送保活请求
+    Background worker that periodically sends keepalive requests to all URLs of active models.
     
     Args:
-        interval_minutes: 保活间隔时间（分钟）
+        interval_minutes: keepalive interval (minutes)
     """
     global _stop_keepalive
-    # logger.info(f"模型保活线程已启动，间隔: {interval_minutes}分钟")
+    # logger.info(f"Keepalive thread started; interval: {interval_minutes} minutes")
     
     while not _stop_keepalive:
-        # 等待指定的间隔时间
+        # Wait for the configured interval
         for _ in range(interval_minutes * 60):
             if _stop_keepalive:
                 break
@@ -49,15 +47,15 @@ def _keepalive_worker(interval_minutes=1):
         if _stop_keepalive:
             break
             
-        # 为每个活跃模型的每个URL发送保活请求
+        # Send keepalive requests for each active model and URL
         for model in _active_models:
-            # 如果模型有多个URL(api_urls列表)，遍历每个URL
+            # If the model has multiple URLs (api_urls), ping each one.
             if hasattr(model, 'api_urls') and len(model.api_urls) > 1:
                 for url in model.api_urls:
                     try:
-                        # 对于DeepSeekAPI和其他支持异步生成的模型，尝试使用指定URL生成
+                        # For models that support async generation, try generating with the specified URL.
                         if hasattr(model, 'generate_async'):
-                            # 这里需要添加异步运行上下文
+                            # Create an event loop for async execution.
                             loop = asyncio.new_event_loop()
                             asyncio.set_event_loop(loop)
                             result = loop.run_until_complete(model.generate_async(
@@ -68,13 +66,13 @@ def _keepalive_worker(interval_minutes=1):
                                 timeout=360
                             ))
                             loop.close()
-                            # logger.info(f"已发送保活请求到URL: {url}, 模型: {model.__class__.__name__}")
+                            # logger.info(f"Keepalive sent to URL: {url}, model: {model.__class__.__name__}")
                         else:
-                            # 对于不支持在generate方法中指定URL的模型，记录警告
-                            logger.warning(f"模型 {model.__class__.__name__} 不支持对URL进行保活: {url}")
+                            # If the model cannot target a specific URL in generate(), warn and continue.
+                            logger.warning(f"Model {model.__class__.__name__} does not support per-URL keepalive: {url}")
                     except Exception as e:
                         pass
-                        # logger.warning(f"URL保活请求失败: {url}, 错误: {e}")
+                        # logger.warning(f"URL keepalive failed: {url}, error: {e}")
             else:
                 try:
                     response = model.generate(
@@ -82,15 +80,15 @@ def _keepalive_worker(interval_minutes=1):
                         max_tokens=16384,
                         temperature=1
                     )
-                    # logger.info(f"已发送保活请求到主URL: {model.url}, 模型: {model.__class__.__name__}")
+                    # logger.info(f"Keepalive sent to primary URL: {model.url}, model: {model.__class__.__name__}")
                 except Exception as e:
                     pass
-                    # logger.warning(f"主URL保活请求失败: {model.url}, 错误: {e}")
+                    # logger.warning(f"Primary URL keepalive failed: {model.url}, error: {e}")
     
-    # logger.info("模型保活线程已停止")
+    # logger.info("Keepalive thread stopped")
 
 def start_keepalive_thread():
-    """启动保活线程（如果尚未启动）"""
+    """Start the keepalive thread (if not already running)."""
     global _keepalive_thread, _stop_keepalive
     
     if _keepalive_thread is None or not _keepalive_thread.is_alive():
@@ -100,49 +98,49 @@ def start_keepalive_thread():
 
 def register_model_for_keepalive(model: BaseAPIModel):
     """
-    注册模型以进行保活
+    Register a model instance for keepalive.
     
     Args:
-        model: 需要保活的模型实例
+        model: the model instance to keep alive
     """
     global _active_models
     
     if model not in _active_models:
         _active_models.append(model)
-        logger.info(f"已注册模型进行保活: {model.__class__.__name__}")
+        logger.info(f"Registered model for keepalive: {model.__class__.__name__}")
     
-    # 确保保活线程已启动
+    # Ensure the keepalive thread is running.
     start_keepalive_thread()
 
 def create_model(model_config: Dict, generate_config: Dict = None) -> BaseAPIModel:
     """
-    根据配置创建模型实例
+    Create a model instance from config.
     
     Args:
-        model_config: 模型配置字典
+        model_config: model config dict
         
     Returns:
-        创建的模型实例
+        The created model instance
     """
-    # 处理可能存在的多个URL
+    # Handle multi-URL config
     if "api_url" in model_config and "," in model_config["api_url"]:
         api_urls = [url.strip() for url in model_config["api_url"].split(",")]
-        main_url = api_urls[0]  # 第一个URL作为主URL
-        logger.info(f"检测到多个URL配置，共 {len(api_urls)} 个URL")
+        main_url = api_urls[0]  # first URL is the primary URL
+        logger.info(f"Detected {len(api_urls)} API URLs in config")
     else:
         api_urls = None
         main_url = model_config.get("api_url")
     
-    # 获取timeout参数，默认为600秒
+    # Timeout (default: 600s)
     timeout = model_config.get("timeout", 600)
     if isinstance(timeout, str):
         timeout = float(timeout)
-    logger.info(f"使用超时设置: {timeout}秒")
+    logger.info(f"Using timeout: {timeout} seconds")
     
-    # 获取额外提示
+    # Extra prompt
     extra_prompt = model_config.get("extra_prompt")
     if extra_prompt:
-        logger.info(f"使用额外提示: {extra_prompt}")
+        logger.info(f"Using extra_prompt: {extra_prompt}")
     if model_config.get("model_type") == "api":
         api_type_value = model_config.get("api_type", "")
         api_type = api_type_value.lower()
@@ -167,7 +165,7 @@ def create_model(model_config: Dict, generate_config: Dict = None) -> BaseAPIMod
                 system_prompt=model_config.get("system_prompt"),
                 generate_config=generate_config
             )
-        else:  # 默认为 custom
+        else:  # default: custom
             model = CustomAPI(
                 url=main_url,
                 sk_token=model_config.get("sk_token", "none"),
@@ -180,21 +178,21 @@ def create_model(model_config: Dict, generate_config: Dict = None) -> BaseAPIMod
             )
     else:
         print(model_config)
-        raise ValueError(f"不支持的模型类型: {model_config.get('model_type')}")
+        raise ValueError(f"Unsupported model type: {model_config.get('model_type')}")
     
-    # 检查模型健康状态
-    logger.info(f"正在检查API URL健康状态...")
+    # Health check
+    logger.info("Checking API URL health...")
     print('model:\n\n')
     print(model)
     is_healthy = model.check_health()
     
     if not is_healthy:
-        logger.error("所有API URL都不健康，程序退出")
-        raise ValueError(f"所有API URL都不健康，程序退出")
+        logger.error("All API URLs are unhealthy; exiting")
+        raise ValueError("All API URLs are unhealthy; exiting")
     
     if 'fc.chj.cloud' in model.url:
         return model
     else:
-        # 注册模型进行保活
+        # Register model for keepalive
         # register_model_for_keepalive(model)
         return model

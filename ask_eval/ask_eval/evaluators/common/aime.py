@@ -9,29 +9,29 @@ class AimeEvaluator(MathEvaluator):
         super().__init__(model, eval_config)
         
     def format_example(self, data: Dict, include_answer: bool = False, train_data: List[Dict] = None) -> str:
-        """格式化数学问题"""
+        """Format a math problem into a prompt string."""
         if "ori_question" in data.keys():
             return data["ori_question"]
         else:
             return data["problem"] + "\nPlease reason step by step, and put your final answer within \\boxed" + r"{}."
     
     def validate_answer(self, prediction: str, reference: str) -> bool:
-        """验证数学答案"""
-        # 先把答案转为数字
+        """Validate a math answer."""
+        # Convert reference to a number if possible
         if isinstance(reference, str):
             reference = int(reference)
         
-        # 标准化表达式
+        # Normalize expressions
         prediction = str(prediction).strip().lower()
         reference = str(reference).strip().lower()
         prediction = self._normalize_expression(prediction)
         reference = self._normalize_expression(reference)
         
-        # 直接字符串匹配
+        # Direct string match
         if prediction == reference:
             return True
             
-        # 数值等价性验证
+        # Numeric equivalence check
         try:
             pred_num = float(simplify(prediction))
             ref_num = float(simplify(reference))
@@ -40,7 +40,7 @@ class AimeEvaluator(MathEvaluator):
         except:
             pass
             
-        # 符号等价性验证
+        # Symbolic equivalence check
         try:
             eq = Eq(simplify(prediction), simplify(reference))
             if eq.simplify():
@@ -48,5 +48,5 @@ class AimeEvaluator(MathEvaluator):
         except:
             pass
             
-        # 数字匹配
+        # Fallback: compare extracted numbers
         return self._compare_numbers(prediction, reference)

@@ -15,7 +15,7 @@ from ask_eval.data.data_map import LOADER_MAP
 
 
 def create_evaluator(evalset_name: str, model, generate_config: Dict, judge_model=None, judge_config: Dict = None):
-    """创建评估器实例"""
+    """Create an evaluator instance."""
     evaluator_class = EVALUATOR_MAP.get(evalset_name)
     if not evaluator_class:
         raise ValueError(f"Unknown evalset: {evalset_name}")
@@ -27,31 +27,31 @@ def create_evaluator(evalset_name: str, model, generate_config: Dict, judge_mode
     return evaluator_class(model, generate_config)
 
 async def run_evaluation(config):
-    """运行评估"""
-    # 加载配置
+    """Run evaluation for a single task config."""
+    # Load configs
     model_config = get_model_config(config)
     generate_config = get_generate_config(config)
     path_config = get_path_config(config)
     evaluator_config = get_evaluator_config(config) if config.has_section("evaluatorconfig") else {}
     evalset_name = config.get("evalset", "evalsetname")
     
-    # 获取评估器特定配置
+    # Apply evalset-specific overrides (if present)
     specific_config = get_specific_config(config, evalset_name)
     if specific_config:
-        print(f"已加载 {evalset_name} 特定配置: {specific_config}")
-        generate_config.update(specific_config)  # 合并到 generate_config
-    print('generate_config:\n\n')
+        print(f"Loaded evalset-specific overrides for {evalset_name}: {specific_config}")
+        generate_config.update(specific_config)  # merge into generate_config
+    print("generate_config:\n")
     print(generate_config)
     
-    # 获取尝试次数 n，默认为1
+    # Number of attempts per question (default: 1)
     n_attempts = int(generate_config.get("n_attempts", 1))
-    print(f"评估每个问题将尝试 {n_attempts} 次")
+    print(f"Each question will be evaluated with {n_attempts} attempt(s).")
     
     loader_class = LOADER_MAP.get(evalset_name)
     if not loader_class:
         raise ValueError(f"No data loader found for evalset: {evalset_name}")
     
-    # 创建输出目录
+    # Create output directory
     save_dir = os.path.join(
         path_config["save_dir"],
         evalset_name,
@@ -59,7 +59,7 @@ async def run_evaluation(config):
     )
     os.makedirs(save_dir, exist_ok=True)
     
-    # 创建模型和评估器
+    # Create model and evaluator
     model = create_model(model_config, generate_config)
 
     evaluator_class = EVALUATOR_MAP.get(evalset_name)
@@ -73,32 +73,32 @@ async def run_evaluation(config):
         if not evaluator_config:
             raise ValueError(f"Evaluator {evalset_name} requires [evaluatorconfig] settings.")
         judge_config = evaluator_config
-        print("正在创建Judge模型...")
+        print("Creating judge model...")
         judge_model = create_model(judge_config, judge_config)
 
     evaluator = create_evaluator(evalset_name, model, generate_config, judge_model=judge_model, judge_config=judge_config)
-    metric_label = getattr(evaluator, "metric_label", "准确率")
+    metric_label = getattr(evaluator, "metric_label", "Accuracy")
     
-    # 创建数据加载器并加载数据
+    # Create data loader and load data
     data_dir = os.path.join(path_config["data_dir"], evalset_name)
     
     loader = loader_class(data_dir)
         
     data = loader.load_data()
-    # 处理不同数据集返回格式
+    # Handle different dataset return formats
     if isinstance(data, dict) and "test" in data:
         test_data = data["test"]
-        train_data = data.get("train", [])  # 如果没有train则为空列表
+        train_data = data.get("train", [])  # empty list if train split not provided
     else:
         test_data = data
         train_data = None
     
-    # 记录开始时间
+    # Record start time
     start_time = datetime.now()
-    print(f"开始评估 {evalset_name} - {model_config['task_name']}")
-    print(f"开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Starting evaluation: {evalset_name} - {model_config['task_name']}")
+    print(f"Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     
-    # 存储所有尝试的结果
+    # Store results for all attempts
     all_responses = []
     all_thinking_processes = []
     all_truncated_flags = []
@@ -106,11 +106,11 @@ async def run_evaluation(config):
     all_cors = []
     
     final_log = ""
-    # 多次运行模型推理
+    # Run multiple inference attempts
     for attempt in range(n_attempts):
-        print(f"执行第 {attempt+1}/{n_attempts} 次推理...")
+        print(f"Running inference attempt {attempt+1}/{n_attempts}...")
         
-        # 获取模型响应
+        # Get model responses
         responses, thinking_processes, truncated_flags, prompts = await evaluator.infer_batch(test_data, train_data)
         
         evaluation_args = dict(
@@ -127,19 +127,19 @@ async def run_evaluation(config):
         else:
             acc, cors, log = evaluator.evaluate_responses(**evaluation_args)
     
-        # 保存这次评估的所有结果
+        # Save this attempt's outputs
         all_responses.append(responses)
         all_thinking_processes.append(thinking_processes)
         all_truncated_flags.append(truncated_flags)
         all_cors.append(cors)
-        if attempt == 0:  # 只需要保存一次prompts
+        if attempt == 0:  # prompts are identical across attempts
             all_prompts = prompts
         
-        print(f"第 {attempt+1} 次推理{metric_label}: {acc:.4f}")
-        final_log += f"第 {attempt+1} 次推理{metric_label}: {acc:.4f}\n{log}"
+        print(f"Attempt {attempt+1} {metric_label}: {acc:.4f}")
+        final_log += f"Attempt {attempt+1} {metric_label}: {acc:.4f}\n{log}"
     
-    # 计算最终指标
-    # 重组数据为每个问题的所有尝试结果
+    # Compute final metrics
+    # Re-group per-question results across attempts
     question_cors = []
     total_correct = 0
     total_evaluated = 0
@@ -151,10 +151,10 @@ async def run_evaluation(config):
                 total_correct += value
                 total_evaluated += 1
 
-    # 计算平均准确率
+    # Compute average accuracy across all evaluated items
     average_acc = total_correct / total_evaluated if total_evaluated else 0
     
-    # 记录每个问题的所有结果
+    # Record per-question outputs for all attempts
     final_records = []
     for q_idx, data in enumerate(test_data):
         record = {
@@ -175,7 +175,7 @@ async def run_evaluation(config):
             }
             record["attempts"].append(attempt_record)
         
-        # 添加汇总指标
+        # Add aggregated metrics
         if n_attempts > 1:
             valid_attempts = [val for val in attempt_values if val is not None]
             record["pass@1"] = (
@@ -184,23 +184,23 @@ async def run_evaluation(config):
         
         final_records.append(record)
     
-    # 保存汇总结果
+    # Save summary JSON
     summary_file = os.path.join(save_dir, "summary_results.json")
     with open(summary_file, 'w', encoding='utf-8') as f:
         json.dump(final_records, f, indent=2, ensure_ascii=False)
     
-    # 生成最终日志
+    # Build final log
     if n_attempts > 1:
         pass_label = getattr(
             evaluator,
             "multi_attempt_metric_label",
-            f"Pass@1 (尝试次数为{n_attempts}，平均准确率)"
+            f"Pass@1 (n_attempts={n_attempts}, average accuracy)"
         )
         final_log += f"{pass_label}: {average_acc:.4f}\n"
     else:
         final_log += f"{metric_label}: {average_acc:.4f}\n"
     
-    # 统计所有尝试的截断情况
+    # Truncation stats across all attempts
     all_truncated = [flag for attempt_flags in all_truncated_flags for flag in attempt_flags]
     truncation_stats = {}
     for status in set(all_truncated):
@@ -208,54 +208,55 @@ async def run_evaluation(config):
         percentage = count / len(all_truncated) * 100
         truncation_stats[status] = (count, percentage)
     
-    final_log += "总体截断统计:\n"
+    final_log += "Overall truncation stats:\n"
     for status, (count, percentage) in truncation_stats.items():
         final_log += f"- {status}: {count} ({percentage:.1f}%)\n"
     
-    # 记录结果
+    # Write result file
     end_time = datetime.now()
     duration = end_time - start_time
     
     result_file = os.path.join(save_dir, "results.txt")
     with open(result_file, 'w', encoding='utf-8') as f:
-        f.write(f"评估集: {evalset_name}\n")
-        f.write(f"任务名称: {model_config['task_name']}\n")
+        f.write(f"Evalset: {evalset_name}\n")
+        f.write(f"Task: {model_config['task_name']}\n")
         
         if n_attempts > 1:
             pass_label = getattr(
                 evaluator,
                 "multi_attempt_metric_label",
-                f"Pass@1 (尝试次数为{n_attempts}，平均准确率)"
+                f"Pass@1 (n_attempts={n_attempts}, average accuracy)"
             )
             f.write(f"{pass_label}: {average_acc:.4f}\n")
         else:
             f.write(f"{metric_label}: {average_acc:.4f}\n")
             
-        f.write(f"开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"总耗时: {duration}\n")
-        f.write(f"\n详细日志:\n{final_log}")
+        f.write(f"Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"End time: {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Total time: {duration}\n")
+        f.write(f"\nDetailed log:\n{final_log}")
     
-    print(f"评估完成，结果已保存到: {result_file}")
+    print(f"Evaluation complete. Results saved to: {result_file}")
     
     if n_attempts > 1:
         pass_label = getattr(
             evaluator,
             "multi_attempt_metric_label",
-            f"Pass@1 (尝试次数为{n_attempts}，平均准确率)"
+            f"Pass@1 (n_attempts={n_attempts}, average accuracy)"
         )
         print(f"{pass_label}: {average_acc:.4f}")
     else:
         print(f"{metric_label}: {average_acc:.4f}")
         
-    print(f"总耗时: {duration}")
+    print(f"Total time: {duration}")
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True, help="配置")
+    parser.add_argument("--config", required=True, help="Path to the configuration file (.ini)")
     args = parser.parse_args()
     
-    asyncio.run(run_evaluation(args.config))
+    config = load_config(args.config)
+    asyncio.run(run_evaluation(config))
 
 if __name__ == "__main__":
     main()

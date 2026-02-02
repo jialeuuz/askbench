@@ -24,38 +24,38 @@ Reasoning: <short explanation>
 """.strip()
 
 class MedQAEvaluator(JudgeEvaluatorMixin, BaseEvaluator):
-    """MedQA评估器"""
+    """MedQA evaluator."""
     def __init__(self, model, eval_config: Dict, judge_model=None, judge_config: Dict = None):
         super().__init__(model=model, eval_config=eval_config, judge_model=judge_model, judge_config=judge_config)
         self.few_shot_prompt = None
         
     def format_example(self, data: Dict, include_answer: bool = False) -> str:
-        """格式化单个样例"""
-        # 构建问题，使用degraded_question字段
+        """Format a single example into a prompt."""
+        # Build question text
         question = data['ori_question'].strip()
         prompt = question
-        # 如果需要构建few-shot prompt，可以取消下面的注释并传入include_answer=True
+        # If you want a few-shot prompt, you can uncomment the snippet below and pass include_answer=True.
         # if include_answer:
-        #     prompt += f"\n答案：{data['answer']}\n\n"
+        #     prompt += f"\nAnswer: {data['answer']}\n\n"
             
         return prompt
         
     def extract_answer(self, response: str) -> str:
-        """直接返回模型原文，判分交给裁判模型。"""
+        """Return the raw model output; grading is delegated to the judge model."""
         if not response or response == "Error":
             return "Error"
         return response.strip()
     async def infer_batch(self, test_data: List[Dict], train_data: List[Dict] = None) -> Tuple[List[str], List[str], List[str], List[str]]:
-        """批量推理"""
+        """Run batched inference."""
         prompts = []
         
-        # 处理测试样例
+        # Build prompts for test examples
         for data in test_data:
-            # 构建完整prompt
+            # Build prompt
             prompt = self.format_example(data)
             prompts.append(prompt)
             
-        # 获取响应
+        # Get responses
         try:
             responses, thinking_processes, truncated_flags = await self.model.infer_batch_async(prompts, self.max_tokens, self.temperature, self.max_concurrent)
         except Exception as e:

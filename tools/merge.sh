@@ -5,9 +5,9 @@ CHECKPOINT_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/RL
 OUTPUT_DIR="/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/models/Qwen2.5-7B-Instruct_qwen25_7b_17k_mathhard-7bhard"
 WORLD_SIZE=8
 
-# 并行worker数量（建议设置为CPU核心数）
-NUM_WORKERS=$(nproc)  # 自动获取CPU核心数
-# 或者手动设置：NUM_WORKERS=16
+# Parallel worker count (recommended: number of CPU cores)
+NUM_WORKERS=$(nproc)  # Auto-detect CPU core count
+# Or set manually: NUM_WORKERS=16
 
 echo "=================================================="
 echo "🚀 VERL Fast Conversion Mode"
@@ -18,19 +18,19 @@ echo "World Size: $WORLD_SIZE"
 echo "Parallel Workers: $NUM_WORKERS"
 echo "=================================================="
 
-# 显示系统资源
+# Show system resources
 echo "💻 System Resources:"
 echo "  CPU cores: $(nproc)"
 echo "  Memory:"
 free -h | grep -E "Mem|Swap"
 echo ""
 
-# 设置环境变量优化
+# Environment tweaks
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 
-# 执行转换
+# Run conversion
 time python -u /lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/RL/verl/checkpoints/merge_verl.py \
     --checkpoint_dir "$CHECKPOINT_DIR" \
     --output_dir "$OUTPUT_DIR" \

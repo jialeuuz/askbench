@@ -6,7 +6,7 @@ from ask_eval.evaluators.ask import AskEvaluator
 from ask_eval.evaluators.in3_interaction import In3InteractionEvaluator
 from ask_eval.evaluators.healthbench import HealthBenchEvaluator
 
-# 评估器映射
+# Evaluator registry
 EVALUATOR_MAP = {
     "math500": Math500Evaluator,
     "bbh": BBHEvaluator,

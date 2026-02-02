@@ -3,70 +3,70 @@ import os
 
 def convert_jsonl_to_training_format(input_file_path, output_file_path):
     """
-    将包含 'conversation_history' 的 JSONL 文件转换为 LLaMA-Factory 所需的训练格式。
+    Convert a JSONL file containing `conversation_history` into the training JSON format expected by LLaMA-Factory.
 
     Args:
-        input_file_path (str): 输入的 JSONL 文件路径。
-        output_file_path (str): 输出的 JSON 文件路径。
+        input_file_path (str): input JSONL path.
+        output_file_path (str): output JSON path.
     """
-    # 确保输出目录存在
+    # Ensure output directory exists
     output_dir = os.path.dirname(output_file_path)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
-    # 用于存储所有转换后的对话
+    # Store converted conversations
     all_formatted_conversations = []
     
     line_count = 0
     conversion_count = 0
 
-    print(f"开始处理文件: {input_file_path}")
+    print(f"Processing file: {input_file_path}")
 
     try:
         with open(input_file_path, 'r', encoding='utf-8') as infile:
             for line in infile:
                 line_count += 1
                 try:
-                    # 1. 解析每一行的 JSON 数据
+                    # 1) Parse one JSON line
                     original_data = json.loads(line.strip())
 
-                    # 2. 检查是否存在 'conversation_history' 键
+                    # 2) Validate key existence
                     if 'conversation_history' not in original_data:
-                        print(f"警告: 第 {line_count} 行缺少 'conversation_history' 键，已跳过。")
+                        print(f"Warning: line {line_count} missing 'conversation_history'; skipped.")
                         continue
 
-                    # 3. 提取 conversation_history
+                    # 3) Extract conversation_history
                     history = original_data['conversation_history']
                     
-                    # 用于存储当前对话的转换后格式
+                    # Converted turns for this conversation
                     transformed_turns = []
 
-                    # 4. 遍历对话历史，进行格式转换
+                    # 4) Convert each turn
                     for turn in history:
                         role = turn.get('role')
                         content = turn.get('content')
 
                         if role is None or content is None:
-                            print(f"警告: 第 {line_count} 行的某个对话轮次缺少 'role' 或 'content'，已跳过该轮次。")
+                            print(f"Warning: line {line_count} has a turn missing 'role' or 'content'; skipped this turn.")
                             continue
 
-                        # 映射 role 到 from
+                        # Map role -> "from"
                         if role == 'user':
                             from_key = 'human'
                         elif role == 'assistant':
                             from_key = 'gpt'
                         else:
-                            print(f"警告: 第 {line_count} 行发现未知角色 '{role}'，已跳过该轮次。")
+                            print(f"Warning: line {line_count} has unknown role '{role}'; skipped this turn.")
                             continue
                         
-                        # 5. 创建新的对话轮次字典
+                        # 5) Create new turn dict
                         new_turn = {
                             "from": from_key,
                             "value": content
                         }
                         transformed_turns.append(new_turn)
                     
-                    # 6. 将转换后的对话轮次列表包装在最终结构中
+                    # 6) Wrap into the final structure
                     if transformed_turns:
                         final_conversation_object = {
                             "conversations": transformed_turns
@@ -75,25 +75,25 @@ def convert_jsonl_to_training_format(input_file_path, output_file_path):
                         conversion_count += 1
 
                 except json.JSONDecodeError:
-                    print(f"警告: 第 {line_count} 行不是有效的 JSON 格式，已跳过。")
+                    print(f"Warning: line {line_count} is not valid JSON; skipped.")
                 except Exception as e:
-                    print(f"处理第 {line_count} 行时发生未知错误: {e}")
+                    print(f"Unexpected error while processing line {line_count}: {e}")
 
-        # 7. 将所有数据写入到目标 JSON 文件
+        # 7) Write output JSON
         with open(output_file_path, 'w', encoding='utf-8') as outfile:
-            # 使用 indent=2 使输出文件格式美观，易于阅读
-            # ensure_ascii=False 确保中文字符能正确写入
+            # indent=2 makes the output easier to read.
+            # ensure_ascii=False preserves non-ASCII characters.
             json.dump(all_formatted_conversations, outfile, ensure_ascii=False, indent=2)
 
-        print("\n转换完成！")
-        print(f"总共读取行数: {line_count}")
-        print(f"成功转换对话数: {conversion_count}")
-        print(f"输出文件已保存至: {output_file_path}")
+        print("\nDone.")
+        print(f"Total lines read: {line_count}")
+        print(f"Conversations converted: {conversion_count}")
+        print(f"Output written to: {output_file_path}")
 
     except FileNotFoundError:
-        print(f"错误: 输入文件未找到于 '{input_file_path}'")
+        print(f"Error: input file not found: '{input_file_path}'")
     except Exception as e:
-        print(f"发生严重错误: {e}")
+        print(f"Fatal error: {e}")
 
 if __name__ == '__main__':
     input_path = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/final_train_data/degrade_med_40k_oss120b_low.jsonl'

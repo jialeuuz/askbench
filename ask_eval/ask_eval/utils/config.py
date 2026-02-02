@@ -7,25 +7,25 @@ import datetime
 from datetime import datetime
 
 def load_config(config_path: str) -> configparser.ConfigParser:
-    """加载配置文件"""
+    """Load an INI config file."""
     config = configparser.ConfigParser()
     config.read(config_path, encoding='utf-8')
     return config
 
 def load_merged_config(base_config_path: str, task_config_path: str = None) -> configparser.ConfigParser:
-    """加载并合并配置,基础配置优先级高于任务配置"""
-    # 先加载任务配置
+    """Load and merge configs. Base config has higher priority than task config."""
+    # Load task config first
     config = configparser.ConfigParser()
     if task_config_path:
         config.read(task_config_path, encoding='utf-8')
     
-    # 再加载基础配置,会覆盖任务配置中的同名项
+    # Then load base config and override same-name keys
     base_config = configparser.ConfigParser()
     base_config.read(base_config_path, encoding='utf-8')
     
-    # 用基础配置覆盖任务配置
+    # Apply base config on top of task config
     for section in base_config.sections():
-        if section in {"evaluatorconfig", "simulatorconfig"}:      # 评估/仿人配置，缺省时沿用基础配置
+        if section in {"evaluatorconfig", "simulatorconfig"}:      # evaluator/simulator config: fall back to base when missing
             if not config.has_section(section):
                 config.add_section(section)
             for key, value in base_config.items(section):
@@ -40,25 +40,25 @@ def load_merged_config(base_config_path: str, task_config_path: str = None) -> c
 
 def get_section_config(config: configparser.ConfigParser, section: str, 
                      param_specs: Optional[Dict[str, Tuple[str, Any]]] = None) -> Dict:
-    """获取指定部分的配置
+    """Get a section config as a dict.
     
     Args:
-        config: 配置解析器对象
-        section: 配置部分名称
-        param_specs: 参数规格字典，格式为 {参数名: (类型, 默认值)}
-                     类型可以是 'str', 'int', 'float', 'bool' 或 None(自动检测)
-                     如果为None，将读取该部分的所有参数并自动检测类型
+        config: ConfigParser instance
+        section: section name
+        param_specs: optional schema dict: {param_name: (type, default)}
+                     type can be 'str', 'int', 'float', 'bool', or None (auto-detect)
+                     if None, read all params and auto-detect types
     
     Returns:
-        包含该部分所有配置的字典
+        Dict containing the section config
     """
     result = {}
     
-    # 如果未指定部分，返回空字典
+    # Missing section: return empty dict
     if not config.has_section(section):
         return result
     
-    # 如果指定了参数规格，按规格读取
+    # If schema is provided, read params according to it
     if param_specs:
         for param, (param_type, default) in param_specs.items():
             if param_type == 'int':
@@ -67,14 +67,14 @@ def get_section_config(config: configparser.ConfigParser, section: str,
                 result[param] = config.getfloat(section, param, fallback=default)
             elif param_type == 'bool':
                 result[param] = config.getboolean(section, param, fallback=default)
-            else:  # str或其他
+            else:  # str or other
                 result[param] = config.get(section, param, fallback=default)
                 if result[param] and result[param][0] == '"' and result[param][-1] == '"':
                     result[param] = result[param].strip('"')
-    # 否则，读取所有参数并自动检测类型
+    # Otherwise, read all params and auto-detect types
     else:
         for key, value in config.items(section):
-            # 尝试将数值转换为恰当的类型
+            # Try to convert numbers into a reasonable type
             try:
                 if "." in value and value.replace(".", "", 1).isdigit():
                     result[key] = float(value)
@@ -88,7 +88,7 @@ def get_section_config(config: configparser.ConfigParser, section: str,
     return result
 
 def get_model_config(config: configparser.ConfigParser) -> Dict:
-    """获取模型配置"""
+    """Get candidate model config."""
     param_specs = {
         "model_type": ("str", None),
         "api_type": ("str", "none"),
@@ -97,27 +97,27 @@ def get_model_config(config: configparser.ConfigParser) -> Dict:
         "api_url": ("str", None),
         "timeout": ("str", 600),
         "extra_prompt": ("str", None),
-        "system_prompt": ("str", None),  # 新增system_prompt参数
+        "system_prompt": ("str", None),  # system prompt
         "model_name": ("str", None),
-        "enable_thinking": ("bool", True)  # 为qwen3新增enable_thinking参数
+        "enable_thinking": ("bool", True)  # enable_thinking (for qwen3)
     }
     return get_section_config(config, "model", param_specs)
 
 def get_generate_config(config: configparser.ConfigParser) -> Dict:
-    """获取生成配置"""
+    """Get generation config."""
     param_specs = {
         "max_tokens": ("int", 4096),
         "temperature": ("float", 0.6),
         "max_concurrent": ("int", 15),
         "shot": ("int", 0),
-        "n_attempts": ("int", 1),  # 添加n_attempts参数，默认为1次尝试
+        "n_attempts": ("int", 1),  # number of attempts per example
         "top_k": ("int", -1),
         "top_p": ("float", -1)
     }
     return get_section_config(config, "generateconfig", param_specs)
 
 def get_path_config(config: configparser.ConfigParser) -> Dict:
-    """获取路径配置"""
+    """Get path config."""
     param_specs = {
         "data_dir": ("str", "data"),
         "save_dir": ("str", "results")
@@ -125,7 +125,7 @@ def get_path_config(config: configparser.ConfigParser) -> Dict:
     return get_section_config(config, "path", param_specs)
 
 # def get_evaluator_config(config: configparser.ConfigParser) -> Dict:
-#     """获取业务端提供的评估模型配置 或 调用GPT4o评估的模型配置 或 本地离线推理的模型路径"""
+#     """(Deprecated) Evaluator-model config from external services / GPT judge / local offline model path."""
 #     param_specs = {
 #         "evaluator_url": ("str", None),
 #         "headers_authorization": ("str", None),
@@ -135,38 +135,38 @@ def get_path_config(config: configparser.ConfigParser) -> Dict:
 #     }
 #     return get_section_config(config, "evaluatorconfig", param_specs)
 def get_evaluator_config(config: configparser.ConfigParser) -> Dict:
-    """获取评估模型（裁判模型）的配置"""
-    # 定义 create_model 函数需要的参数
+    """Get judge-model (evaluator) config."""
+    # Parameters used by create_model
     param_specs = {
-        # --- 模型创建相关参数 ---
-        "model_type": ("str", None),          # 必须！例如 'api'
-        "api_type": ("str", None),            # 必须！例如 'deepseek', 'gpt-4o'
-        "api_url": ("str", None),             # 必须！API 的 URL
-        "sk_token": ("str", "none"),          # API 密钥
-        "timeout": ("int", 600),              # 超时时间，注意键名是 'timeout'
-        "system_prompt": ("str", None),       # 系统提示词
+        # --- Model creation ---
+        "model_type": ("str", None),          # required, e.g. 'api'
+        "api_type": ("str", None),            # required, e.g. 'deepseek', 'gpt-4o'
+        "api_url": ("str", None),             # required, API URL
+        "sk_token": ("str", "none"),          # API key / token
+        "timeout": ("int", 600),              # request timeout (seconds); key name is 'timeout'
+        "system_prompt": ("str", None),       # system prompt
         "model_name": ("str", None),
         
-        # --- 文本生成相关参数 ---
+        # --- Text generation ---
         "temperature": ("float", 0.1),
         "max_new_tokens": ("int", 2048),
         "top_p": ("float", 1.0),
         
-        # --- 其他控制参数 ---
+        # --- Other controls ---
         "max_concurrent": ("int", 10),
     }
     
-    # 从 [evaluatorconfig] 部分读取配置
+    # Read from [evaluatorconfig]
     eval_config = get_section_config(config, "evaluatorconfig", param_specs)
 
-    # 兼容旧的 time_out 写法，如果存在就用它覆盖 timeout
+    # Backward compatibility: time_out overrides timeout if present.
     if config.has_option("evaluatorconfig", "time_out"):
         eval_config['timeout'] = config.getint("evaluatorconfig", "time_out")
 
     return eval_config
 
 def get_simulator_config(config: configparser.ConfigParser) -> Dict:
-    """获取仿人用户（simulator）的配置；缺省时可复用 evaluatorconfig。"""
+    """Get simulator config; when missing it can reuse evaluatorconfig."""
     param_specs = {
         "model_type": ("str", None),
         "api_type": ("str", None),
@@ -186,7 +186,7 @@ def get_simulator_config(config: configparser.ConfigParser) -> Dict:
     return sim_config
 
 def get_charactereval_config(config: configparser.ConfigParser) -> Dict:
-    """专为CharacterEval人设评估的配置文件读取"""
+    """Config loader for CharacterEval."""
     param_specs = {
         "reward_model": ("str", "baichuan"),
         "reward_model_path": ("str", None),
@@ -195,14 +195,14 @@ def get_charactereval_config(config: configparser.ConfigParser) -> Dict:
     return get_section_config(config, "characterevalconfig", param_specs)
 
 def get_hallulensconfig_config(config: configparser.ConfigParser) -> Dict:
-    """专为Hallulens幻觉评估的配置文件读取"""
+    """Config loader for Hallulens."""
     param_specs = {
         "do_generate_prompt": ("bool", True),
         "do_inference": ("bool", True),
         "do_eval": ("bool", True),
-        "N": ("int", 5000),            # 生成和评估问题的数量
+        "N": ("int", 5000),            # number of prompts to generate/evaluate
         "model_type": ("str", "api"),
-        "api_url": ("str", None),      # 默认问题生成器和评估器是一样的
+        "api_url": ("str", None),      # by default generator and evaluator use the same API
         "api_type": ("str", None),
         "max_tokens": ("int", 4096),
         "temperature": ("float", 0.6),
@@ -212,91 +212,91 @@ def get_hallulensconfig_config(config: configparser.ConfigParser) -> Dict:
     return get_section_config(config, "hallulensconfig", param_specs)
 
 def get_specific_config(config: configparser.ConfigParser, section_name: str) -> Dict:
-    """获取特定评估器的配置（向后兼容）"""
+    """Get evaluator-specific config (backward compatible)."""
     return get_section_config(config, section_name)
 
 def write_final_result_file(save_dir: str, task: str, task_name: str, final_file_name: str = "final_result.txt") -> None:
-    """将结果写入最终文件"""
-    # 读取 save_dir/task/task_name 下的结果文件，获取最终精度
+    """Append a per-task metric summary into the final result file."""
+    # Read the results file under save_dir/task/task_name
     task_result_path = os.path.join(save_dir, task, task_name, "results.txt")
 
-    # 检查文件是否存在，如果不存在则直接 return
+    # If results.txt does not exist, skip.
     if not os.path.exists(task_result_path):
         return
     
     with open(task_result_path, 'r', encoding='utf-8') as file:
         content = file.read()
     
-    # 定义匹配模式：匹配准确率相关指标和总耗时
-    pass_at_1_pattern = r'Pass@1.*?:\s*(\d+\.\d+)'
-    pass_at_n_pattern = r'Pass@(\d+).*?:\s*(\d+\.\d+)'
-    avg_at_n_pattern = r'Avg@(\d+).*?:\s*(\d+\.\d+)'
+    # Match patterns: accuracy-related metrics and total runtime
+    pass_at_1_pattern = r'^Pass@1.*?:\s*(\d+(?:\.\d+)?)'
+    pass_at_n_pattern = r'^Pass@(\d+).*?:\s*(\d+(?:\.\d+)?)'
+    avg_at_n_pattern = r'^Avg@(\d+).*?:\s*(\d+(?:\.\d+)?)'
     accuracy_patterns = [
-        ("平均准确率", r'平均准确率.*?:\s*(\d+(?:\.\d+)?)', "AverageAccuracy"),
-        ("Avg Accuracy", r'Avg Accuracy.*?:\s*(\d+(?:\.\d+)?)', "AverageAccuracyEn"),
-        ("最终正确率", r'最终正确率.*?:\s*(\d+(?:\.\d+)?)', "FinalAccuracy"),
+        ("Average accuracy", r'^(?:Average accuracy|平均准确率).*?:\s*(\d+(?:\.\d+)?)', "AverageAccuracy"),
+        ("Avg Accuracy", r'^Avg Accuracy.*?:\s*(\d+(?:\.\d+)?)', "AverageAccuracyEn"),
+        ("Final accuracy", r'^(?:Final accuracy|最终正确率).*?:\s*(\d+(?:\.\d+)?)', "FinalAccuracy"),
         ("AskBench Final Accuracy", r'AskBench Final Accuracy:\s*(\d+(?:\.\d+)?)', "AskBenchFinalAccuracy"),
         ("Vague Ask Rate", r'Vague Ask Rate:\s*(\d+(?:\.\d+)?)', "VagueAskRate"),
-        ("综合得分", r'综合得分.*?:\s*(\d+(?:\.\d+)?)', "TotalScore"),
+        ("Composite score", r'^(?:Composite score|综合得分).*?:\s*(\d+(?:\.\d+)?)', "TotalScore"),
         ("HealthBench Score", r'HealthBench Score.*?:\s*(\d+(?:\.\d+)?)', "HealthBenchScore"),
-        ("准确率", r'(?<!尝试)准确率:\s*(\d+(?:\.\d+)?)', "LegacyAccuracy"),
+        ("Accuracy", r'^(?:Accuracy|准确率)\s*:\s*(\d+(?:\.\d+)?)', "Accuracy"),
     ]
-    time_pattern = r"总耗时:\s*(\d+):(\d{2}):(\d{2}\.\d+)"
+    time_pattern = r'^(?:Total time|总耗时)\s*:\s*((?:\d+\s+day[s]?,\s*)?\d+:\d{2}:\d{2}(?:\.\d+)?)'
     
-    # 使用集合来跟踪已添加的指标，避免重复
+    # Track added metrics to avoid duplicates
     added_metrics = set()
     metrics = []
     
-    # 尝试匹配 Pass@1
-    pass_at_1_match = re.search(pass_at_1_pattern, content)
+    # Pass@1
+    pass_at_1_match = re.search(pass_at_1_pattern, content, re.MULTILINE)
     if pass_at_1_match:
         metrics.append(f"Pass@1: {pass_at_1_match.group(1)}")
         added_metrics.add("Pass@1")
     
-    # 查找所有 Pass@n 匹配
-    pass_at_n_matches = re.findall(pass_at_n_pattern, content)
-    # 过滤掉 n=1 的情况，因为已经由 pass_at_1_pattern 处理
+    # All Pass@n
+    pass_at_n_matches = re.findall(pass_at_n_pattern, content, re.MULTILINE)
+    # Skip n=1 because it's handled by pass_at_1_pattern above
     for n, value in pass_at_n_matches:
         metric_key = f"Pass@{n}"
-        if n != '1' and metric_key not in added_metrics:  # 避免重复
+        if n != '1' and metric_key not in added_metrics:
             metrics.append(f"{metric_key}: {value}")
             added_metrics.add(metric_key)
     
-    # 尝试匹配 Avg@n
-    avg_at_n_matches = re.findall(avg_at_n_pattern, content)
+    # Avg@n
+    avg_at_n_matches = re.findall(avg_at_n_pattern, content, re.MULTILINE)
     for n, value in avg_at_n_matches:
         metric_key = f"Avg@{n}"
-        if metric_key not in added_metrics:  # 避免重复
+        if metric_key not in added_metrics:
             metrics.append(f"{metric_key}: {value}")
             added_metrics.add(metric_key)
 
-    # 处理准确率相关的其它格式
+    # Other accuracy-related formats
     for label, pattern, metric_key in accuracy_patterns:
-        matches = re.findall(pattern, content)
+        matches = re.findall(pattern, content, re.MULTILINE)
         if not matches:
             continue
         if metric_key in added_metrics:
             continue
-        # 仅保留第一个匹配值，避免重复
+        # Keep only the first match to avoid duplicates
         value = matches[0]
         metrics.append(f"{label}: {value}")
         added_metrics.add(metric_key)
 
     if not metrics:
-        metrics.append("准确率: 未知")
+        metrics.append("Accuracy: unknown")
     
-    # 查找总耗时
-    time_match = re.search(time_pattern, content)
+    # Total runtime
+    time_match = re.search(time_pattern, content, re.MULTILINE)
     if time_match:
-        total_time = time_match.group(0)
+        total_time = f"Total time: {time_match.group(1)}"
     else:
-        total_time = "总耗时: 未知"
+        total_time = "Total time: unknown"
 
-    # 格式化结果
+    # Format results
     metrics_str = " | ".join(metrics)
     
     final_file_path = os.path.join(save_dir, final_file_name)
-    # 以追加模式打开最终文件
+    # Append to the final result file
     with open(final_file_path, 'a', encoding='utf-8') as file:
         file.write(f"{task.ljust(30)} | {metrics_str.ljust(30)} | {total_time}\n")
 
@@ -305,176 +305,185 @@ def write_final_evalscope_result_file(
     save_dir: str,
     task: str,
     task_name: str,
-    config: Dict[str, Any],  # 无默认值，必须传
-    final_file_name: str = "final_result.txt",  # 默认参数放最后
+    config: Dict[str, Any],  # required
+    final_file_name: str = "final_result.txt",  # keep defaults last
 ) -> None:
 
-    """将结果写入最终文件"""
-    # 读取 save_dir/task/task_name 下的结果文件，获取最终精度
+    """Append a per-task metric summary into the final result file (EvalScope/OpenCompass/etc.)."""
+    # Read the results file under save_dir/task/task_name
     tasks_config_dir = config.get("tasks", "tasks_config_path")
     if 'origin' in tasks_config_dir:
         task_result_path = os.path.join(save_dir, task, task_name, "results.txt")
         with open(task_result_path, 'r', encoding='utf-8') as file:
             content = file.read()
-        # 定义匹配模式：匹配准确率相关指标和总耗时
-        pass_at_1_pattern = r'Pass@1.*?:\s*(\d+\.\d+)'
-        pass_at_n_pattern = r'Pass@(\d+).*?:\s*(\d+\.\d+)'
-        avg_at_n_pattern = r'Avg@(\d+).*?:\s*(\d+\.\d+)'
+        # Match patterns: accuracy-related metrics and total runtime
+        pass_at_1_pattern = r'^Pass@1.*?:\s*(\d+(?:\.\d+)?)'
+        pass_at_n_pattern = r'^Pass@(\d+).*?:\s*(\d+(?:\.\d+)?)'
+        avg_at_n_pattern = r'^Avg@(\d+).*?:\s*(\d+(?:\.\d+)?)'
         score_pattern = r'score:\s*(\d+\.\d+)'
-        legacy_acc_pattern = r'准确率:\s*(\d+\.\d+)'  # 兼容旧格式
-        time_pattern = r"总耗时:\s*(\d+):(\d{2}):(\d{2}\.\d+)"
+        legacy_acc_pattern = r'^(?:Accuracy|准确率)\s*:\s*(\d+(?:\.\d+)?)'  # legacy formats (EN/ZH)
+        time_pattern = r'^(?:Total time|总耗时)\s*:\s*((?:\d+\s+day[s]?,\s*)?\d+:\d{2}:\d{2}(?:\.\d+)?)'
         
-        # 使用集合来跟踪已添加的指标，避免重复
+        # Track added metrics to avoid duplicates
         added_metrics = set()
         metrics = []
         
-        # 尝试匹配 Pass@1
-        pass_at_1_match = re.search(pass_at_1_pattern, content)
+        # Pass@1
+        pass_at_1_match = re.search(pass_at_1_pattern, content, re.MULTILINE)
         score_pattern_at_1_match = re.search(score_pattern, content)
         if pass_at_1_match:
             metrics.append(f"Pass@1: {pass_at_1_match.group(1)}")
             added_metrics.add("Pass@1")
         else:
-            # 尝试匹配旧格式的准确率
-            legacy_match = re.search(legacy_acc_pattern, content)
+            # Legacy accuracy format
+            legacy_match = re.search(legacy_acc_pattern, content, re.MULTILINE)
             if legacy_match:
-                metrics.append(legacy_match.group(0))
+                metrics.append(f"Accuracy: {legacy_match.group(1)}")
             elif score_pattern_at_1_match:
                 metrics.append(score_pattern_at_1_match.group(0))
             else:
-                metrics.append("准确率: 未知")
+                metrics.append("Accuracy: unknown")
         
-        # 查找所有 Pass@n 匹配
-        pass_at_n_matches = re.findall(pass_at_n_pattern, content)
-        # 过滤掉 n=1 的情况，因为已经由 pass_at_1_pattern 处理
+        # All Pass@n
+        pass_at_n_matches = re.findall(pass_at_n_pattern, content, re.MULTILINE)
+        # Skip n=1 because it's handled by pass_at_1_pattern above
         for n, value in pass_at_n_matches:
             metric_key = f"Pass@{n}"
-            if n != '1' and metric_key not in added_metrics:  # 避免重复
+            if n != '1' and metric_key not in added_metrics:
                 metrics.append(f"{metric_key}: {value}")
                 added_metrics.add(metric_key)
         
-        # 尝试匹配 Avg@n
-        avg_at_n_matches = re.findall(avg_at_n_pattern, content)
+        # Avg@n
+        avg_at_n_matches = re.findall(avg_at_n_pattern, content, re.MULTILINE)
         for n, value in avg_at_n_matches:
             metric_key = f"Avg@{n}"
-            if metric_key not in added_metrics:  # 避免重复
+            if metric_key not in added_metrics:
                 metrics.append(f"{metric_key}: {value}")
                 added_metrics.add(metric_key)
         
-        # 查找总耗时
-        time_match = re.search(time_pattern, content)
+        # Total runtime
+        time_match = re.search(time_pattern, content, re.MULTILINE)
         if time_match:
-            total_time = time_match.group(0)
+            total_time = f"Total time: {time_match.group(1)}"
         else:
-            total_time = "总耗时: 未知"
+            total_time = "Total time: unknown"
 
-        # 格式化结果
+        # Format result line
         metrics_str = " | ".join(metrics)
         
         final_file_path = os.path.join(save_dir, final_file_name)
-        # 以追加模式打开最终文件
+        # Append to the final result file
         with open(final_file_path, 'a', encoding='utf-8') as file:
             file.write(f"{task.ljust(30)} | {metrics_str.ljust(30)} | {total_time}\n")
 
     elif 'OpenCompass' in tasks_config_dir:
         date_pattern = re.compile(r'^\d{8}_\d{6}$')
     
-        # 获取所有符合时间格式的文件夹
+        # Collect all timestamp-formatted folders
         time_dirs = []
         task_dir = os.path.join(save_dir, task, task_name)
         
         if not os.path.exists(task_dir):
-            print(f"任务目录不存在: {task_dir}")
+            print(f"Task directory not found: {task_dir}")
             return
         
         for dir_name in os.listdir(task_dir):
             dir_path = os.path.join(task_dir, dir_name)
             if os.path.isdir(dir_path) and date_pattern.match(dir_name):
                 try:
-                    # 将目录名转换为datetime对象以便排序
+                    # Convert folder name into datetime for sorting
                     dir_time = datetime.strptime(dir_name, "%Y%m%d_%H%M%S")
                     time_dirs.append((dir_time, dir_name, dir_path))
                 except ValueError:
                     continue
         
         if not time_dirs:
-            print(f"在 {task_dir} 中未找到符合时间格式的目录")
+            print(f"No timestamp-formatted directories found under: {task_dir}")
             return
         
-        # 按时间降序排序，获取最新的目录
+        # Sort by time (desc) and pick the latest
         time_dirs.sort(reverse=True)
         latest_time, latest_dir_name, latest_dir_path = time_dirs[0]
         
-        # 构建结果文件路径
+        # Build results.txt path
         task_result_path = os.path.join(latest_dir_path, "results.txt")
         
         if not os.path.exists(task_result_path):
-            print(f"在最新目录 {latest_dir_name} 中未找到 results.txt")
+            print(f"results.txt not found in latest directory {latest_dir_name}")
             return
 
 
         with open(task_result_path, 'r', encoding='utf-8') as file:
             content = file.read()
 
-         # 定义匹配模式：匹配准确率相关指标和总耗时
-        pass_at_1_pattern = r'Pass@1.*?:\s*(\d+\.\d+)'
-        pass_at_n_pattern = r'Pass@(\d+).*?:\s*(\d+\.\d+)'
-        avg_at_n_pattern = r'Avg@(\d+).*?:\s*(\d+\.\d+)'
+        # Match patterns: accuracy-related metrics and total runtime
+        pass_at_1_pattern = r'^Pass@1.*?:\s*(\d+(?:\.\d+)?)'
+        pass_at_n_pattern = r'^Pass@(\d+).*?:\s*(\d+(?:\.\d+)?)'
+        avg_at_n_pattern = r'^Avg@(\d+).*?:\s*(\d+(?:\.\d+)?)'
         score_pattern = r'score:\s*(\d+\.\d+)'
-        legacy_acc_pattern = r'准确率:\s*(\d+\.\d+)'  # 兼容旧格式
-        time_pattern = r"总耗时:\s*(\d+):(\d{2}):(\d{2}\.\d+)"
-        # —— 新增处理多文件格式开始 ——
-        # 判断是多文件（多个“评估文件:”或“文件名:”出现）
+        legacy_acc_pattern = r'^(?:Accuracy|准确率)\s*:\s*(\d+(?:\.\d+)?)'  # legacy formats (EN/ZH)
+        time_pattern = r'^(?:Total time|总耗时)\s*:\s*((?:\d+\s+day[s]?,\s*)?\d+:\d{2}:\d{2}(?:\.\d+)?)'
+        # --- Multi-file format handling ---
+        # Detect multi-file outputs (multiple occurrences of the per-file header markers).
         folder_line = ""
-        folder_match = re.search(r'(?:文件名|文件夹):\s*\d+_\d+', content)
+        folder_match = re.search(r'(?:Filename|Folder|Run|文件名|文件夹):\s*(\d+_\d+)', content)
         if folder_match:
-            folder_line = folder_match.group(0)
+            folder_line = f"run: {folder_match.group(1)}"
 
-        multi_file = len(re.findall(r'(评估文件:|文件名:)', content)) > 1
+        file_header_pattern = r'(?:Evaluation file:|Eval file:|File name:|评估文件:|文件名:)'
+        multi_file = len(re.findall(file_header_pattern, content)) > 1
 
         if multi_file:
-            blocks = re.split(r'(?:评估文件:|文件名:)', content)[1:]  # 跳过前言
+            blocks = re.split(file_header_pattern, content)[1:]  # skip header/preamble
             metrics = []
-            time_match = re.search(time_pattern, content)
-            total_time = time_match.group(0) if time_match else "总耗时: 未知"
+            time_match = re.search(time_pattern, content, re.MULTILINE)
+            total_time = (
+                f"Total time: {time_match.group(1)}"
+                if time_match
+                else "Total time: unknown"
+            )
             for block in blocks:
                 b_head = block.strip()
                 fname_match = re.match(r"([^\n\r]+)", b_head)
                 if fname_match:
                     fname = fname_match.group(1).replace('.json', '').replace('-', '.')
                 else:
-                    fname = "未知文件"
-                # 准确率/score
-                m_acc = re.search(r'准确率:\s*(\d+\.\d+)', block)
+                    fname = "unknown file"
+                # Accuracy / score
+                m_acc = re.search(r'(?:Accuracy|准确率)\s*:\s*(\d+(?:\.\d+)?)', block)
                 m_score = re.search(r'score:\s*(\d+\.\d+)', block)
                 if m_acc:
-                    acc = f"准确率: {m_acc.group(1)}"
+                    acc = f"Accuracy: {m_acc.group(1)}"
                 elif m_score:
                     acc = f"score: {m_score.group(1)}"
                 else:
-                    acc = "准确率: 未知"
+                    acc = "Accuracy: unknown"
                 metrics.append(f"{fname} | {acc}")
 
             metrics_str = "   ".join(metrics)
-            # 拼接格式：任务名 | 文件名: 20250430_101042 | bustm.test | 准确率: 80.00 ... | 总耗时: XXX
+            # Output format: task | run: <id> | <file> | Accuracy: ... | Total time: ...
             final_file_path = os.path.join(save_dir, final_file_name)
             with open(final_file_path, 'a', encoding='utf-8') as file:
                 file.write(f"{task.ljust(20)} | {folder_line} | {metrics_str} | {total_time}\n")
 
         else:
-            legacy_match = re.search(legacy_acc_pattern, content)
+            legacy_match = re.search(legacy_acc_pattern, content, re.MULTILINE)
             score_match = re.search(score_pattern, content)
-            pass1_match = re.search(pass_at_1_pattern, content)
+            pass1_match = re.search(pass_at_1_pattern, content, re.MULTILINE)
             if pass1_match:
                 acc_str = f"Pass@1: {pass1_match.group(1)}"
             elif legacy_match:
-                acc_str = legacy_match.group(0)
+                acc_str = f"Accuracy: {legacy_match.group(1)}"
             elif score_match:
                 acc_str = score_match.group(0)
             else:
-                acc_str = "准确率: 未知"
-            time_match = re.search(time_pattern, content)
-            total_time = time_match.group(0) if time_match else "总耗时: 未知"
+                acc_str = "Accuracy: unknown"
+            time_match = re.search(time_pattern, content, re.MULTILINE)
+            total_time = (
+                f"Total time: {time_match.group(1)}"
+                if time_match
+                else "Total time: unknown"
+            )
             metrics_str = " | ".join(x for x in [folder_line, acc_str] if x)
             final_file_path = os.path.join(save_dir, final_file_name)
             with open(final_file_path, 'a', encoding='utf-8') as file:
@@ -488,66 +497,66 @@ def write_final_evalscope_result_file(
             with open(task_result_path, 'r', encoding='utf-8') as file:
                 content = file.readlines()
         except FileNotFoundError:
-            print(f"结果文件未找到: {task_result_path}")
+            print(f"Result file not found: {task_result_path}")
             return
         
-        # 初始化变量
+        # Initialize
         metrics = []
-        time_info = "总耗时: 未知"
+        time_info = "Total time: unknown"
         all_metrics = []
         collect_all = False
         
-        # 定义匹配模式
+        # Define match patterns
         patterns = {
             'pass_at_1': r'Pass@1.*?:\s*(\d+\.\d+)',
             'pass_at_n': r'Pass@(\d+).*?:\s*(\d+\.\d+)',
             'avg_at_n': r'Avg@(\d+).*?:\s*(\d+\.\d+)',
             'overall': r'Overall:\s*(\d+\.\d+)',
             'score': r'score:\s*(\d+\.\d+)',
-            'legacy_acc': r'准确率:\s*(\d+\.\d+)',
-            'time': r"总耗时:\s*(\d+:\d{2}:\d{2}\.\d+)",
-            'metric_line': r'^([^:]+):\s*([^\n]+)$'  # 匹配所有指标行
+            'legacy_acc': r'^(?:Accuracy|准确率)\s*:\s*(\d+(?:\.\d+)?)',
+            'time': r'^(?:Total time|总耗时)\s*:\s*((?:\d+\s+day[s]?,\s*)?\d+:\d{2}:\d{2}(?:\.\d+)?)',
+            'metric_line': r'^([^:]+):\s*([^\n]+)$'  # match any "key: value" metric line
         }
         
-        # 检查是否有Overall指标
+        # Detect whether Overall exists
         has_overall = any(re.search(patterns['overall'], line) for line in content)
         
         for line in content:
             line = line.strip()
             
-            # 匹配总耗时
+            # Total runtime
             time_match = re.search(patterns['time'], line)
             if time_match:
-                time_info = f"总耗时: {time_match.group(1)}"
+                time_info = f"Total time: {time_match.group(1)}"
                 continue
             
-            # 如果有Overall指标，按原逻辑处理
+            # If Overall exists, keep the original logic
             if has_overall:
-                # 匹配Pass@1
+                # Pass@1
                 pass_at_1_match = re.search(patterns['pass_at_1'], line)
                 if pass_at_1_match and 'Pass@1' not in [m.split(':')[0] for m in metrics]:
                     metrics.append(f"Pass@1: {pass_at_1_match.group(1)}")
                     continue
                     
-                # 匹配旧格式准确率
+                # Legacy accuracy format
                 legacy_match = re.search(patterns['legacy_acc'], line)
-                if legacy_match and '准确率' not in [m.split(':')[0] for m in metrics]:
-                    metrics.append(legacy_match.group(0))
+                if legacy_match and 'Accuracy' not in [m.split(':')[0] for m in metrics]:
+                    metrics.append(f"Accuracy: {legacy_match.group(1)}")
                     continue
                     
-                # 匹配score
+                # score
                 score_match = re.search(patterns['score'], line)
                 if score_match and 'score' not in [m.split(':')[0] for m in metrics]:
                     metrics.append(score_match.group(0))
                     continue
                     
-                # 匹配Overall
+                # Overall
                 overall_match = re.search(patterns['overall'], line)
                 if overall_match and 'Overall' not in [m.split(':')[0] for m in metrics]:
-                    metrics.append(f"准确率: {overall_match.group(1)}")
+                    metrics.append(f"Accuracy: {overall_match.group(1)}")
                     continue
                     
-                # 匹配Pass@n和Avg@n
+                # Pass@n and Avg@n
                 pass_at_n_match = re.search(patterns['pass_at_n'], line)
                 if pass_at_n_match:
                     metric = f"Pass@{pass_at_n_match.group(1)}: {pass_at_n_match.group(2)}"
@@ -562,23 +571,39 @@ def write_final_evalscope_result_file(
                         metrics.append(metric)
                         continue
             else:
-                # 如果没有Overall指标，收集所有指标行
+                # If there is no Overall metric, collect all metric lines
                 metric_match = re.search(patterns['metric_line'], line)
-                if metric_match and line not in ['评估集', '开始时间']:
+                if metric_match:
                     metric_name = metric_match.group(1).strip()
+                    excluded_keys = {
+                        "Evalset",
+                        "Task",
+                        "Start time",
+                        "End time",
+                        "Total time",
+                        "Detailed log",
+                        "评估集",
+                        "任务名称",
+                        "开始时间",
+                        "结束时间",
+                        "总耗时",
+                        "详细日志",
+                    }
+                    if metric_name in excluded_keys:
+                        continue
                     metric_value = metric_match.group(2).strip()
                     if metric_name not in [m.split(':')[0] for m in all_metrics]:
                         all_metrics.append(f"{metric_name}: {metric_value}")
         
-        # 决定使用哪些指标
+        # Decide which metrics to use
         if has_overall and metrics:
             metrics_str = " | ".join(metrics)
         elif all_metrics:
             metrics_str = " | ".join(all_metrics)
         else:
-            metrics_str = "无有效指标"
+            metrics_str = "No valid metrics"
         
-        # 写入最终结果文件
+        # Write to final result file
         final_file_path = os.path.join(save_dir, final_file_name)
         with open(final_file_path, 'a', encoding='utf-8') as file:
             file.write(f"{task.ljust(30)} | {metrics_str.ljust(60)} | {time_info}\n")

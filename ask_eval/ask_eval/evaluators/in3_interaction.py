@@ -90,7 +90,7 @@ class In3InteractionEvaluator(AskEvaluator):
             or sample_data.get("question")
         )
         if not ori_question:
-            raise ValueError("in3_interaction 样本缺少 'task' 或 'ori_question' 字段。")
+            raise ValueError("in3_interaction sample is missing the 'task' or 'ori_question' field.")
 
         degraded_question = sample_data.get("degraded_question") or ori_question
 
@@ -114,7 +114,7 @@ class In3InteractionEvaluator(AskEvaluator):
         degraded_info = _stringify_info(sample_data.get("degraded_info"))
 
         if required_points is None:
-            # 向后兼容旧格式：根据 missing_details 自动推导
+            # Backward compatibility: derive required_points from missing_details if needed.
             missing_details: List[Dict[str, Any]] = sample_data.get("missing_details") or []
             derived_points: List[str] = []
             detail_info_lines: List[str] = []

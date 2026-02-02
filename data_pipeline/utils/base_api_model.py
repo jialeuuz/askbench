@@ -1,4 +1,4 @@
-# mind_eval/models/base_api_model.py
+# data_pipeline/utils/base_api_model.py
 from abc import ABC, abstractmethod
 from typing import List, Dict, Tuple, Any, Union
 import asyncio
@@ -7,14 +7,14 @@ from utils.check_url_health import check_urls_health
 
 
 class BaseAPIModel(ABC):
-    """API模型基类"""
+    """Base class for OpenAI-compatible API models."""
     def __init__(self, url: str, api_urls: List[str] = None, timeout: float = 600, extra_prompt: str = None, system_prompt: str = None, generate_config: Dict = None):
         self.url = url
-        self.api_urls = api_urls or [url]  # 如果未提供api_urls，则使用单个url
-        self.timeout = timeout  # 添加默认超时时间
-        self.extra_prompt = extra_prompt  # 添加额外提示
-        self.system_prompt = system_prompt  # 添加系统提示
-        self.generate_config = generate_config  # 添加生成配置
+        self.api_urls = api_urls or [url]  # fall back to a single URL
+        self.timeout = timeout  # default request timeout
+        self.extra_prompt = extra_prompt  # optional suffix appended to user content
+        self.system_prompt = system_prompt  # optional system message
+        self.generate_config = generate_config  # generation params
         if generate_config:
             self.top_k = generate_config.get("top_k", -1)
             self.top_p = generate_config.get("top_p", -1)
@@ -24,19 +24,19 @@ class BaseAPIModel(ABC):
 
     def check_health(self, max_wait_minutes: int = 15) -> bool:
         """
-        检查API URL是否健康
+        Check whether any configured API URL is reachable/healthy.
         
         Args:
-            max_wait_minutes: 最长等待时间（分钟）
+            max_wait_minutes: maximum time to wait (minutes)
             
         Returns:
-            bool: 是否有健康的URL
+            bool: True if at least one URL is healthy
         """
-        # 获取sk_token和api_type
+        # Grab auth/model params if present on the concrete implementation.
         sk_token = getattr(self, 'sk_token', None)
         api_type = getattr(self, 'api_type', None)
         
-        # 检查所有URLs
+        # Probe all URLs.
         success, healthy_urls = check_urls_health(
             self.api_urls,
             sk_token=sk_token,
@@ -44,14 +44,14 @@ class BaseAPIModel(ABC):
             max_wait_minutes=max_wait_minutes
         )
         
-        # 如果有健康的URL，更新api_urls只保留健康的
+        # If any URL is healthy, keep only healthy URLs.
         if success and healthy_urls:
             self.api_urls = healthy_urls
-            print("检测所有健康的URL，更新api_urls: ", healthy_urls)
-            # 如果主URL不健康，将第一个健康URL设为主URL
+            print("Detected healthy URLs; updating api_urls:", healthy_urls)
+            # If the primary URL is unhealthy, switch to the first healthy URL.
             if self.url not in healthy_urls:
                 self.url = healthy_urls[0]
-                print("更新主URL: ", self.url)
+                print("Updated primary URL:", self.url)
         return success
 
     @abstractmethod
@@ -61,7 +61,7 @@ class BaseAPIModel(ABC):
                            temperature: float = 0.6,
                            url: str = None,
                            timeout: float = None) -> str:
-        """异步生成响应"""
+        """Asynchronously generate a response."""
         pass
 
     @abstractmethod
@@ -71,34 +71,34 @@ class BaseAPIModel(ABC):
                                max_concurrent: int = 15,
                                output_file: str = None,
                                timeout: float = None) -> List[str]:
-        """异步批量处理"""
+        """Asynchronously process a batch."""
         pass
 
     def format_messages(self, message: Union[str, Dict[str, str], List[Dict[str, str]]]) -> List[Dict[str, str]]:
         """
-        将各种格式的消息转换为标准的消息列表格式
+        Convert supported message inputs to a standard list-of-messages format.
         
         Args:
-            message: 可以是字符串、单个消息字典或消息字典列表
+            message: a string, a single {"role","content"} dict, or a list of such dicts
             
         Returns:
-            标准格式的消息列表
+            List[Dict[str, str]]: standardized message list
         """
-        # 检查是否需要添加额外提示
+        # Whether to append extra/system prompts.
         has_extra = hasattr(self, 'extra_prompt') and self.extra_prompt
         has_system = hasattr(self, 'system_prompt') and self.system_prompt
         
         result = []
         
-        # 添加系统提示（如果有）
+        # Add system prompt (if provided).
         if has_system:
             result.append({'role': 'system', 'content': self.system_prompt})
         
         if isinstance(message, dict) and 'role' in message and 'content' in message:
-            # 单个消息字典
+            # Single message dict
             if has_extra and message['role'] == 'user':
-                message = message.copy()  # 创建副本，避免修改原始对象
-                # 如果传入的massage['content']是列表，就不做拼接额外prompt的操作
+                message = message.copy()  # avoid mutating the input object
+                # If message['content'] is already a list (multimodal), do not append extra_prompt.
                 if isinstance(message['content'], list):
                     pass
                 else:
@@ -106,10 +106,10 @@ class BaseAPIModel(ABC):
             result.append(message)
         
         elif isinstance(message, list):
-            # 消息字典列表
+            # List of message dicts
             if has_extra:
                 for item in message:
-                    item_copy = item.copy()  # 创建副本
+                    item_copy = item.copy()  # avoid mutating the input object
                     if item_copy.get('role') == 'user':
                         item_copy['content'] = f"{item_copy['content']}\n{self.extra_prompt}"
                     result.append(item_copy)
@@ -117,7 +117,7 @@ class BaseAPIModel(ABC):
                 result.extend(message)
         
         else:
-            # 字符串消息
+            # String message
             content = str(message)
             if has_extra:
                 content = f"{content}\n{self.extra_prompt}"

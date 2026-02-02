@@ -31,7 +31,7 @@ class Math500Evaluator(JudgeEvaluatorMixin, MathEvaluator):
         super().__init__(model=model, eval_config=eval_config, judge_model=judge_model, judge_config=judge_config)
 
     def validate_answer(self, prediction: str, reference: str) -> bool:
-        """验证数学答案"""
+        """Validate a math answer."""
         try:
             reference = strip_string(reference)
             result = math_equal(prediction, reference)
@@ -41,7 +41,7 @@ class Math500Evaluator(JudgeEvaluatorMixin, MathEvaluator):
     
 
     def extract_answer(self, pred_str):
-        """直接返回模型原文，Judge 负责判分。"""
+        """Return the raw model output; the judge is responsible for grading."""
         if not pred_str or pred_str == "Error":
             return "Error"
         return str(pred_str).strip()

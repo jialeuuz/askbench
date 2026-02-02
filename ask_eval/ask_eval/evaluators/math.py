@@ -10,10 +10,10 @@ class MathEvaluator(BaseEvaluator):
         super().__init__(model, eval_config)
         
     def format_example(self, data: Dict, include_answer: bool = False, train_data: List[Dict] = None) -> str:
-        """格式化数学问题"""
+        """Format a math problem into a prompt string."""
         prompt = ""
         
-        # 添加few-shot示例
+        # Add few-shot examples
         if train_data and self.shot > 0:
             examples = random.sample(train_data, min(self.shot, len(train_data)))
             for i, example in enumerate(examples, 1):
@@ -21,7 +21,7 @@ class MathEvaluator(BaseEvaluator):
                 prompt += f"{example['problem']}\n"
                 prompt += f"Answer: {example['answer']}\n\n"
                 
-        # 添加当前问题
+        # Add the current problem
         if "problem" in data:
             prompt += data["problem"]
         else:
@@ -33,18 +33,18 @@ class MathEvaluator(BaseEvaluator):
         return prompt
 
     def validate_answer(self, prediction: str, reference: str) -> bool:
-        """验证数学答案"""
-        # 标准化表达式
+        """Validate a math answer."""
+        # Normalize expressions
         prediction = str(prediction).strip().lower()
         reference = str(reference).strip().lower()
         prediction = self._normalize_expression(prediction)
         reference = self._normalize_expression(reference)
         
-        # 直接字符串匹配
+        # Direct string match
         if prediction == reference:
             return True
             
-        # 数值等价性验证
+        # Numeric equivalence check
         try:
             pred_num = float(simplify(prediction))
             ref_num = float(simplify(reference))
@@ -53,7 +53,7 @@ class MathEvaluator(BaseEvaluator):
         except:
             pass
             
-        # 符号等价性验证
+        # Symbolic equivalence check
         try:
             eq = Eq(simplify(prediction), simplify(reference))
             if eq.simplify():
@@ -61,48 +61,47 @@ class MathEvaluator(BaseEvaluator):
         except:
             pass
             
-        # 数字匹配
+        # Fallback: compare extracted numbers
         return self._compare_numbers(prediction, reference)
 
     def _normalize_expression(self, expr: str) -> str:
-        # 去除空格和无关符号
-        # 移除各种LaTeX修饰符
+        # Remove common LaTeX wrappers and irrelevant tokens
         expr = re.sub(r'\\(left|right|big|,\s*|quad)', '', expr)
-        # 统一分数命令
+        # Normalize fraction commands
         expr = re.sub(r'\\dfrac', r'\\frac', expr)
-        # 提取括号内容
+        # Strip outer parentheses
         expr = re.match(r'\((.*)\)', expr).group(1) if re.match(r'\((.*)\)', expr) else expr
-        # 清除LaTeX环境符号
+        # Remove LaTeX math markers
         expr = expr.replace('$', '').strip()
 
-        # 处理带前导零的数字
+        # Remove leading zeros in numbers
         expr = re.sub(r'\b0+(\d+)', r'\1', expr)
         
         try:
-            # 分数标准化（如3/4 → \frac{3}{4}）
+            # Normalize simple fractions (e.g., 3/4)
             if "/" in expr:
                 parts = expr.split("/")
                 if len(parts) == 2:
                     frac = Fraction(int(parts[0]), int(parts[1]))
                     return f"{frac.numerator}/{frac.denominator}"
             
-            # 代数表达式化简（需安装SymPy）
+            # Simplify algebraic expressions (requires SymPy)
             sympy_expr = simplify(expr)
             return str(sympy_expr)
         except:
-            return expr  # 无法解析时保留原始答案
+            return expr  # Keep the original text if parsing fails
 
     def _compare_numbers(self, response: str, answer: str) -> bool:
-        """比较模型的回答和参考答案"""
+        """Compare the model response and reference answer via extracted numbers."""
         response_numbers = self._extract_numbers(response)
         answer_numbers = self._extract_numbers(answer)
         if response_numbers and answer_numbers:
-            # 如果都能提取出数字，比较数字集合
+            # If both contain numbers, compare sets
             return response_numbers == answer_numbers
         else:
-            # 否则，检查是否相互包含
+            # Otherwise, check substring containment
             return (answer in response) or (response in answer)
 
     def _extract_numbers(self, text: str) -> set:
-        """从文本中提取所有数字并返回一个集合"""
+        """Extract all digit sequences from text as a set."""
         return set(re.findall(r'\d+', text))

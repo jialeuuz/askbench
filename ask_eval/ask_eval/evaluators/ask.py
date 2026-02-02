@@ -11,17 +11,18 @@ from tqdm import tqdm
 from ask_eval.evaluators.base_evaluator import BaseEvaluator
 from ask_eval.evaluators.judge_utils import MAX_JUDGE_JSON_RETRIES, parse_json_to_dict
 
-# --- 在这里配置首轮对话的引导模式 ---
-# 可选值: 'none', 'weak', 'strong'
-# 'none': 不添加任何引导
-# 'weak': 添加弱引导，暗示模型可以提问
-# 'strong': 添加强引导，明确要求模型必须先提问
+# --- First-turn guidance mode ---
+# Options: 'none', 'weak', 'strong'
+# - 'none': no extra guidance
+# - 'weak': lightly suggests the model may ask clarifying questions
+# - 'strong': explicitly requires asking clarifying questions before answering
 GUIDANCE_MODE = os.getenv("GUIDANCE_MODE", "none").lower()
 
-# --- 严格模式开关 ---
-# 通过环境变量 STRICT_MODE 控制：
-# - 关闭(默认)：行为与现有评测完全一致
-# - 开启：用于更严格的 AskBench 流程与 Judge 判定（例如两轮上限、首轮必须澄清、末轮必须给出唯一答案等）
+# --- Strict mode switch ---
+# Controlled by env var STRICT_MODE:
+# - Off (default): behavior matches the existing evaluation protocol
+# - On: stricter AskBench protocol + judge rules (e.g., force two turns, require clarification on turn 1,
+#       require a unique final answer on the last turn, etc.)
 STRICT_MODE = str(os.getenv("STRICT_MODE", "0")).strip().lower() in {
     "1",
     "true",
@@ -248,7 +249,7 @@ Provide your response in two parts:
 """.strip()
 
 
-# Prompt 2: 仿人模型 - 模拟用户回答问题 (全新优化版)
+# Prompt 2: User simulator (simulate user replies)
 SIMULATOR_PROMPT_TEMPLATE = """
 You are acting as a person seeking help from an AI assistant. You must play this role realistically.
 
@@ -278,8 +279,9 @@ You are acting as a person seeking help from an AI assistant. You must play this
 Provide only the text of your response. Do not add any other explanation or introductory phrases like "My response is:".
 """.strip()
 
-# Prompt 2b: Overconfidence 专用“安全 simulator”
-# 用 simulator_model 生成“承认/否认式”用户回复；prompt 不提供 ori_question/expected_answer，降低泄露与解题污染风险。
+# Prompt 2b: Overconfidence-specific "safe simulator"
+# Use simulator_model to generate accept/reject style user replies. The prompt does not include
+# ori_question/expected_answer to reduce leakage and avoid contaminating the solving process.
 OVERCONFIDENCE_SIMULATOR_PROMPT_TEMPLATE = """
 You are simulating a user in an **overconfidence** evaluation.
 
@@ -299,7 +301,7 @@ Assistant's latest message:
 Output ONLY the user reply text.
 """.strip()
 
-# Prompt 3: 强制最终回答 
+# Prompt 3: Force a final answer
 FORCE_FINAL_ANSWER_PROMPT = """
 \n**This is the final turn.** Based on the information you have gathered so far, you MUST provide a conclusive, final answer. Do not ask any more questions.
 """.strip()
@@ -408,7 +410,7 @@ ASK_MIND_TOTAL_SCORE_WEIGHTS = {
 
 
 def compute_askmind_total_score(accuracy: float, prem_rate: float, unq_rate: float) -> float:
-    """按照约定权重将 acc、prem_rate、unq_rate 汇总为 0~1 的综合得分。"""
+    """Aggregate acc/prem_rate/unq_rate into a 0–1 composite score using the configured weights."""
     accuracy = max(0.0, min(1.0, accuracy))
     prem_rate = max(0.0, min(1.0, prem_rate))
     unq_rate = max(0.0, min(1.0, unq_rate))
@@ -561,7 +563,7 @@ class AskEvaluator(BaseEvaluator):
                 "metrics": {
                     "redundant_question_events": 0,
                     "premature_final_answer": False,
-                    # 是否在对话过程中至少提出过一次澄清问题
+                    # Whether the assistant asked at least one clarifying question during the dialogue.
                     "asked_any_question": False
                 },
                 "last_known_missing_points": list(required_points),
@@ -578,7 +580,7 @@ class AskEvaluator(BaseEvaluator):
             
         #     print(f"\n===== Turn {turn}/{max_turns} | Active Samples: {len(active_samples)} =====")
 
-        #     # --- 修正部分：带进度条的并发执行 ---
+        #     # --- Concurrent execution with a progress bar ---
         #     async def run_tasks_with_progress(tasks_coroutines, description):
         #         tasks = []
         #         with tqdm(total=len(tasks_coroutines), desc=description) as pbar:
@@ -593,7 +595,7 @@ class AskEvaluator(BaseEvaluator):
         #             results = await asyncio.gather(*tasks)
         #         return results
 
-        #     # 1. 被测模型 (LLM) 推理
+        #     # 1) Candidate model inference
         #     llm_coroutines = []
         #     for sample_state in active_samples:
         #         messages_for_llm = list(sample_state["conversation_history"])
@@ -614,7 +616,7 @@ class AskEvaluator(BaseEvaluator):
             
             print(f"\n===== Turn {turn}/{max_turns} | Active Samples: {len(active_samples)} =====")
 
-            # --- 修正部分：带进度条的并发执行 ---
+            # --- Concurrent execution with a progress bar ---
             async def run_tasks_with_progress(tasks_coroutines, description):
                 tasks = []
                 with tqdm(total=len(tasks_coroutines), desc=description) as pbar:
@@ -629,7 +631,7 @@ class AskEvaluator(BaseEvaluator):
                     results = await asyncio.gather(*tasks)
                 return results
 
-            # 1. 被测模型 (LLM) 推理
+            # 1) Candidate model inference
             llm_coroutines = []
             for sample_state in active_samples:
                 messages_for_llm = list(sample_state["conversation_history"])
@@ -644,9 +646,9 @@ class AskEvaluator(BaseEvaluator):
                         prompt_to_add = FATA_GUIDANCE_PROMPT
 
                     if prompt_to_add:
-                        # 同样使用 .copy() 来避免修改原始历史记录
+                        # Use .copy() to avoid mutating the original history.
                         last_message = messages_for_llm[-1].copy()
-                        # 使用两个换行符让提示更清晰
+                        # Use two newlines to visually separate the guidance.
                         last_message["content"] += f"\n\n{prompt_to_add}"
                         messages_for_llm[-1] = last_message
 
@@ -663,7 +665,7 @@ class AskEvaluator(BaseEvaluator):
             for i, sample_state in enumerate(active_samples):
                 sample_state["conversation_history"].append({"role": "assistant", "content": llm_responses[i]})
 
-            # 2. Judge模型执行【仲裁+评估】
+            # 2) Judge: arbitration + grading
             judge_coroutines = []
             for sample_state in active_samples:
                 scenario_type = sample_state["scenario"].get("type", "default")
@@ -695,7 +697,7 @@ class AskEvaluator(BaseEvaluator):
 
             judge_results = await run_tasks_with_progress(judge_coroutines, f"Turn {turn}: Judging")
 
-            # 3. 决策与状态更新
+            # 3) Decision and state update
             still_active_samples = []
             for i, sample_state in enumerate(active_samples):
                 judge_result = judge_results[i]
@@ -748,7 +750,8 @@ class AskEvaluator(BaseEvaluator):
                 sample_state["last_known_missing_points"] = missing_points
                 sample_state["last_all_required_points_resolved"] = all_points_resolved
 
-                # STRICT MODE: 第一轮必须先澄清/纠错（is_final_answer=false），若首轮直接给出最终回答则直接判错。
+                # STRICT MODE: turn 1 must clarify/correct (is_final_answer=false). If the model gives a final
+                # answer on turn 1, mark it incorrect immediately.
                 if STRICT_MODE and turn == 1 and decision.get("is_final_answer"):
                     sample_state["is_finished"] = True
                     sample_state["metrics"]["premature_final_answer"] = not all_points_resolved
@@ -770,7 +773,7 @@ class AskEvaluator(BaseEvaluator):
                     final_results.append(sample_state["result"])
                     continue
 
-                # 标记该样本是否曾提出过澄清问题
+                # Track whether the assistant asked any clarifying question for this sample.
                 if not decision.get("is_final_answer"):
                     sample_state["metrics"]["asked_any_question"] = True
                     if all_points_resolved:
@@ -827,11 +830,13 @@ class AskEvaluator(BaseEvaluator):
             if not active_samples:
                 continue
 
-            # 4. Simulator 模型扮演【仿人用户】
+            # 4) Simulator model plays the user
             #
-            # NOTE: overconfidence 场景的 checkpoints 需要由 assistant 主动纠错，而不是由 user “提供答案/做题”。
-            # 但为了与你的设计对齐（“必须使用 simulator”），overconfidence 的用户回合也统一由 simulator_model 生成。
-            # 为了降低泄露风险：prompt 不提供 ori_question/expected_answer，只允许输出对误导点的承认/否认。
+            # NOTE: In overconfidence scenarios, checkpoints must be corrected by the assistant (the user should
+            # not "solve the problem" or provide new facts). To keep the protocol consistent (and to always use a
+            # simulator), overconfidence user turns are also generated by simulator_model. To reduce leakage risk,
+            # the simulator prompt does not include ori_question/expected_answer and only allows accept/reject
+            # feedback on misleading points.
             simulator_coroutines = []
             simulator_indices = []
             simulated_overrides: Dict[int, str] = {}
@@ -951,7 +956,7 @@ class AskEvaluator(BaseEvaluator):
             (redundant_question_samples / denominator) if denominator else 0.0
         )
 
-        # 在所有有效样本中，有多少样本至少提出过一次澄清问题
+        # Among valid samples, how many asked at least one clarifying question?
         ask_triggered_samples = sum(
             1
             for res in valid_results
@@ -993,7 +998,7 @@ class AskEvaluator(BaseEvaluator):
             log_lines.extend([
                 f"- Samples where at least one clarifying question was asked (among samples with required_points): {ask_display} (ask_rate={ask_triggered_sample_rate:.4f}, {ask_triggered_sample_rate * 100:.1f}%)",
                 f"- Final answers after covering all required points: {coverage_display} (cov_rate={compliance_rate * 100:.1f}%)",
-                f"- 综合得分 (score): {total_score:.4f} (acc={accuracy:.4f}, cov_rate={compliance_rate:.4f}, unq_rate={redundant_question_sample_rate:.4f})",
+                f"- Composite score: {total_score:.4f} (acc={accuracy:.4f}, cov_rate={compliance_rate:.4f}, unq_rate={redundant_question_sample_rate:.4f})",
                 f"- Samples with unnecessary clarifying questions after all info was available: {redundant_display} (unq_rate={redundant_question_sample_rate * 100:.1f}%, {redundant_question_events} total events)"
             ])
         else:

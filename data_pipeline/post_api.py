@@ -1,4 +1,4 @@
-# ask_eval/models/api/custom.py
+# data_pipeline/post_api.py
 import requests
 import json
 import asyncio
@@ -41,7 +41,7 @@ class CustomAPI(BaseAPIModel):
                            temperature: float = 0.6,
                            url: str = None,
                            timeout: float = 3600) -> Tuple[str, str, str]:
-        """异步生成响应，支持指定URL"""
+        """Asynchronously generate a response (supports overriding the target URL)."""
         timeout_value = timeout if timeout is not None else self.timeout
         target_url = url if url else self.url
         
@@ -63,7 +63,7 @@ class CustomAPI(BaseAPIModel):
             data_entry['top_p'] = self.top_p
             
         retries = 0
-        backoff_time = 1  # 初始退避时间（秒）
+        backoff_time = 1  # initial backoff (seconds)
         
         while retries < max_retries:
             response_text = ""
@@ -81,47 +81,47 @@ class CustomAPI(BaseAPIModel):
                             response_data = json.loads(response_text)
                             
                             if 'choices' not in response_data or not response_data['choices']:
-                                print(f"API响应成功 ({target_url})，但内容不符合预期: {response_text}")
+                                print(f"API call succeeded ({target_url}) but response is missing expected fields: {response_text}")
                                 raise ValueError("API response is missing 'choices' or 'choices' is empty.")
 
                             content = str(response_data['choices'][0]['message']['content'])
                             return self._parse_content(content, response_data)
                         else:
-                            # print(f"API请求失败 ({target_url})，状态码: {response.status}, 响应内容: {response_text}")
+                            # print(f"API request failed ({target_url}). status={response.status}, body={response_text}")
                             # Raise an exception to trigger retry logic
                             response.raise_for_status()
 
             except asyncio.TimeoutError:
-                print(f'API请求超时 ({target_url})：超过{timeout_value}秒未响应')
+                print(f"API request timed out ({target_url}): no response within {timeout_value} seconds")
                 retries += 1
                 await asyncio.sleep(backoff_time)
                 backoff_time = min(backoff_time * 2, 30)
                 
             except aiohttp.ClientError as e:
-                # print(f'API网络或HTTP错误 ({target_url})：{e}')
+                # print(f"Network/HTTP error ({target_url}): {e}")
                 if response_text:
-                    # print(f"原始API响应: {response_text}")
+                    # print(f"Raw API response: {response_text}")
                     pass
                 retries += 1
                 await asyncio.sleep(backoff_time)
                 backoff_time = min(backoff_time * 2, 30)
             
             except (json.JSONDecodeError, KeyError, ValueError) as e:
-                print(f'API响应解析异常 ({target_url})：{e}')
+                print(f"Failed to parse API response ({target_url}): {e}")
                 if response_text:
-                    # print(f"原始API响应: {response_text}")
+                    # print(f"Raw API response: {response_text}")
                     pass
                 retries += 1
                 await asyncio.sleep(1)
 
             except Exception as e:
-                print(f'未预料的API调用异常 ({target_url})：{e}')
+                print(f"Unexpected API call error ({target_url}): {e}")
                 if response_text:
-                    print(f"原始API响应: {response_text}")
+                    print(f"Raw API response: {response_text}")
                 retries += 1
                 await asyncio.sleep(1)
 
-        print(f"超过最大尝试次数！URL: {target_url}")
+        print(f"Exceeded maximum retry attempts. URL: {target_url}")
         return 'Error', 'none', 'none'
 
     async def infer_batch_async(self, messages: List[Union[str, Dict[str, str], List[Dict[str, str]]]],
@@ -130,14 +130,14 @@ class CustomAPI(BaseAPIModel):
                               max_concurrent: int = 15,
                               output_file: str = None,
                               timeout: float = None) -> Tuple[List[str], List[str], List[str]]:
-        """异步批量处理，支持多URL"""
+        """Asynchronously process a batch of inputs (supports multiple URLs)."""
         timeout_value = timeout if timeout is not None else self.timeout
         
         semaphore = asyncio.Semaphore(max_concurrent)
         formatted_messages = [self.format_messages(message) for message in messages]
         
         async def process_single_message(message_list: List[Dict[str, str]], idx: int) -> Tuple[str, str, str]:
-            # 根据消息索引循环选择URL
+            # Pick a URL in round-robin fashion based on the message index.
             url_to_use = self.api_urls[idx % len(self.api_urls)]
             
             async with semaphore:

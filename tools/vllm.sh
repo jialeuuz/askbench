@@ -9,7 +9,7 @@ CUDA_DEVICES="2,3"
 # CUDA_DEVICES="6,7"
 # CUDA_DEVICES="0,1,2,3"
 # CUDA_DEVICES="4,5,6,7"
-TP=2  # 等于你想用的张量并行大小，和设备数量一致
+TP=2  # Tensor-parallel size (should match the number of GPUs in CUDA_DEVICES)
 
 echo "Using MODEL_PATH=${MODEL_PATH}"
 echo "CUDA_DEVICES=${CUDA_DEVICES}"

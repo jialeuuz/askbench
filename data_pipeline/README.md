@@ -1,56 +1,56 @@
 # data_pipeline
 
-从单轮 QA 样本构建 AskBench 风格的多轮对话数据（AskMind / AskOverconfidence），并提供可选的“直接回答→裁判→纠错”短流程策略。
+Build AskBench-style multi-turn dialogue data (AskMind / AskOverconfidence) from single-turn QA examples, with an optional short-path strategy (“direct answer → judge → correction”).
 
-- **AskMind（缺失信息 / intent-deficient）**：把原始问题劣化为 `degraded_question`，同时生成缺失点清单 `required_points`，再进行多轮追问与用户模拟，最后作答并由裁判判断；必要时强制修正以保证最终答案正确。
-- **AskOverconfidence（错误前提 / misleading claims）**：在保留原题 givens 的同时，注入“自信但错误”的断言，得到 `overconfidence_question` 与 `misleading_points`，再围绕误导点进行纠偏与作答。
+- **AskMind (missing information / intent-deficient)**: degrade the original question into `degraded_question`, generate a checklist `required_points`, then run a multi-turn loop (ask → simulated user reply → answer → judge). If needed, force-correct the final answer to ensure correctness.
+- **AskOverconfidence (false premises / misleading claims)**: keep the original givens verbatim while injecting confidently-stated wrong intermediate claims, producing `overconfidence_question` and `misleading_points`. The assistant must identify and correct the misleading points before answering.
 
-更完整的实现细节（代码结构、Prompt 变量注入、策略内部步骤等）见 `readme_for_ai.md`。
+For implementation details (code structure, prompt variable injection, strategy internals), see `readme_for_ai.md`. A Chinese copy of the original documentation is preserved as `data_pipeline/README_zh.md`.
 
-## 环境准备
+## Setup
 
 - Python 3.9+
-- 安装依赖（任选其一）：
-  - 在仓库根目录：`pip install -r data_pipeline/requirements.txt`
-  - 或进入目录：`cd data_pipeline && pip install -r requirements.txt`
-- 需要可用的 Chat Completions API（OpenAI 兼容返回：`choices[0].message.content`）
+- Install dependencies (either option works):
+  - From repo root: `pip install -r data_pipeline/requirements.txt`
+  - Or inside the directory: `cd data_pipeline && pip install -r requirements.txt`
+- You need an OpenAI-compatible Chat Completions API that returns `choices[0].message.content`
 
-## 输入与输出
+## I/O Format
 
-输入文件：JSONL（每行一个样本），至少包含：
+Input: JSONL (one example per line), with at least:
 
 ```json
 {
-  "id": "可选；缺失时会按内容生成确定性哈希ID",
-  "ori_question": "原始问题",
-  "expected_answer": "标准答案",
-  "solution": "可选；用于强制修正时的参考解题过程"
+  "id": "optional; deterministically hashed from content if missing",
+  "ori_question": "original question",
+  "expected_answer": "reference answer",
+  "solution": "optional; used as a reference when force-correcting"
 }
 ```
 
-输出文件：JSONL（成功样本）。常见字段：
+Output: JSONL (successful examples). Common fields:
 
-- `conversation_history`：多轮对话列表，元素形如 `{ "role": "user|assistant", "content": "..." }`
-- `degraded_question` / `degraded_info` / `required_points`：AskMind（缺失信息）相关
-- `overconfidence_question` / `overconfidence_info` / `misleading_points`：AskOverconfidence（错误前提）相关
+- `conversation_history`: list of multi-turn messages, each like `{ "role": "user|assistant", "content": "..." }`
+- `degraded_question` / `degraded_info` / `required_points`: AskMind fields
+- `overconfidence_question` / `overconfidence_info` / `misleading_points`: AskOverconfidence fields
 
-失败文件：与输出同名追加 `_failed` 后缀，JSONL。每条含 `_failure` 元信息（失败步骤、原因、重试次数、截断的回复预览等）。
+Failures: a JSONL file with the same name plus a `_failed` suffix. Each item includes `_failure` metadata (failed step, reason, retry count, truncated response preview, etc.).
 
-## 运行方式
+## Running
 
-最简单方式：直接修改 `data_pipeline/main.py` 末尾的常量，然后运行：
+Simplest: edit the constants at the bottom of `data_pipeline/main.py`, then run:
 
 ```bash
 python data_pipeline/main.py
 ```
 
-也可以在你自己的脚本中调用 `main()`（注意这是 async 函数）：
+Or call `main()` from your own script (note: it is `async`):
 
 ```python
 import asyncio
 import sys
 
-# 让 Python 能找到 data_pipeline/ 下的脚本式模块（main.py / strategies.py / post_api.py ...）
+# Make Python able to import script-style modules under data_pipeline/ (main.py / strategies.py / post_api.py ...).
 sys.path.append("data_pipeline")
 from main import main
 
@@ -70,18 +70,18 @@ asyncio.run(main(
 ))
 ```
 
-断点续跑：默认会跳过已写入成功/失败文件的 `id`。如需重跑历史失败项，可设置环境变量 `REPROCESS_FAILED=1`。
+Resuming: by default, the pipeline skips `id`s that already exist in the success/failure files. To reprocess historical failures, set `REPROCESS_FAILED=1`.
 
-## 策略（strategies）
+## Strategies
 
-在 `data_pipeline/strategies.py` 中实现，当前内置：
+Implemented in `data_pipeline/strategies.py`. Built-in strategies:
 
-1) `generate_degraded_question_and_info`：生成 `degraded_question` / `degraded_info` / `required_points`
-2) `generate_overconfidence_question_and_info`：生成 `overconfidence_question` / `overconfidence_info` / `misleading_points`
-3) `generate_multi_turn_degraded_training_data`：AskMind 多轮对话生成（追问→用户模拟→覆盖检查→作答→裁判→必要时强制修正）
-4) `generate_multi_turn_overconfidence_training_data`：AskOverconfidence 多轮对话生成（围绕误导点纠偏后再作答）
-5) `strategy_direct_answer_and_correct`：短流程：直接回答→裁判；若错误则基于 `expected_answer`（可选结合 `solution`）重构“完美答案”
+1) `generate_degraded_question_and_info`: generate `degraded_question` / `degraded_info` / `required_points`
+2) `generate_overconfidence_question_and_info`: generate `overconfidence_question` / `overconfidence_info` / `misleading_points`
+3) `generate_multi_turn_degraded_training_data`: AskMind multi-turn generation (ask → simulate user → coverage check → answer → judge → force-correct if needed)
+4) `generate_multi_turn_overconfidence_training_data`: AskOverconfidence multi-turn generation (correct misleading points, then answer)
+5) `strategy_direct_answer_and_correct`: short path (direct answer → judge; if wrong, reconstruct a “perfect answer” from `expected_answer` and optional `solution`)
 
-## 并行调度（可选）
+## Parallel scheduling (optional)
 
-`data_pipeline/run_queue.sh` + `data_pipeline/main_queue.py` 支持把多个任务队列以进程级并行的方式调度执行（适合多路 API 或多份数据并跑）。
+`data_pipeline/run_queue.sh` + `data_pipeline/main_queue.py` support process-level parallel scheduling of multiple task queues (useful when you have multiple API endpoints or multiple input shards).
