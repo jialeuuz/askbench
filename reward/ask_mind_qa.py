@@ -1,95 +1,41 @@
-# verl/utils/reward_score/multiturn_qa.py
-import os
+# verl/utils/reward_score/ask_mind_qa.py
 import random
 import time
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Optional, Dict, Any
 import requests
 import json
 import re
 
-# -------------------------
-# Config: API endpoints and default scores
-# -------------------------
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+# Configure your judge model endpoints here (OpenAI-compatible /chat/completions).
+# The default assumes a local vLLM OpenAI server (see tools/vllm.sh).
 API_URLS = [
-    "http://10.80.13.230:8012/v1/chat/completions",
-    "http://10.80.13.230:8013/v1/chat/completions",
-    "http://10.80.13.230:8014/v1/chat/completions",
-    "http://10.80.13.230:8015/v1/chat/completions",
-    # "http://10.80.13.117:8012/v1/chat/completions",
-    # "http://10.80.13.117:8013/v1/chat/completions"
+    "http://127.0.0.1:8012/v1/chat/completions",
+    "http://127.0.0.1:8013/v1/chat/completions",
+    "http://127.0.0.1:8014/v1/chat/completions",
+    "http://127.0.0.1:8015/v1/chat/completions",
 ]
+# Must match the server's `--served-model-name` (vLLM).
+JUDGE_MODEL_NAME = "default"
 
-# NOTE: The .env loading logic below is currently commented out; you only need to configure API_URLS.
-ENV_FILE_PATH = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhouyang/verl_v5/.env"
-
-# Unified fallback scores on failure (do not return 0.0).
-DEFAULT_NON_FINAL_FAIL = -0.8  # Non-final turns: conservative negative score on parse errors/exceptions
-DEFAULT_FINAL_FAIL = -1.0      # Final turn: conservative negative score on parse errors/exceptions
-
-
-# -------------------------
-# Utilities: load endpoints & parse JSON
-# -------------------------
-def load_api_urls_from_env(env_path: str = ENV_FILE_PATH, max_retries: int = 3, retry_delay: float = 1.0) -> List[str]:
-    """Load VLLM_BASE_URL from a .env file (multi-line or comma-separated) and append /v1/chat/completions."""
-    # for attempt in range(max_retries):
-    #     try:
-    #         if not os.path.exists(env_path):
-    #             return API_URLS
-
-    #         with open(env_path, 'r') as f:
-    #             content = f.read()
-
-    #         pattern = r'VLLM_BASE_URL\s*=\s*["\']([^"\']*(?:\n[^"\']*)*)["\']'
-    #         match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
-    #         if match:
-    #             url_content = match.group(1).strip()
-    #             url_content = re.sub(r'\s+', '', url_content)  # remove all whitespace
-    #             urls = [u.strip() for u in url_content.split(',') if u.strip()]
-
-    #             complete_urls = []
-    #             for url in urls:
-    #                 if not url:
-    #                     continue
-    #                 url = url.rstrip('/')
-    #                 if url.endswith('/v1/chat/completions'):
-    #                     complete_urls.append(url)
-    #                 elif url.endswith('/v1'):
-    #                     complete_urls.append(url + '/chat/completions')
-    #                 elif url.endswith('/chat/completions'):
-    #                     complete_urls.append(url.replace('/chat/completions', '/v1/chat/completions'))
-    #                 else:
-    #                     complete_urls.append(url + '/v1/chat/completions')
-    #             if complete_urls:
-    #                 return complete_urls
-
-    #         return API_URLS
-
-    #     except OSError:
-    #         if attempt < max_retries - 1:
-    #             time.sleep(retry_delay)
-    #             env_path = os.path.abspath(env_path)
-    #             continue
-    #         else:
-    #             import traceback; traceback.print_exc()
-    #             return API_URLS
-    #     except Exception:
-    #         import traceback; traceback.print_exc()
-    #         return API_URLS
-    return API_URLS
+# Conservative defaults on failure (do not return 0.0).
+DEFAULT_NON_FINAL_FAIL = -0.8  # Non-final turn: parsing failures / exceptions.
+DEFAULT_FINAL_FAIL = -1.0      # Final turn: parsing failures / exceptions.
 
 
 def _extract_json(text: str) -> Optional[Dict[str, Any]]:
     """
-    Fault-tolerant parsing:
-    - Prefer extracting a ```json ... ``` fenced block.
-    - Otherwise try json.loads(text).
-    - If trailing garbage exists, try slicing from the first '{' to the last '}'.
+    Best-effort JSON parsing:
+    1) Prefer ```json ...``` fenced block.
+    2) Otherwise try json.loads(text).
+    3) Otherwise slice from the first '{' to the last '}'.
     """
     if not text:
         return None
 
-    # 1) Code fence
+    # 1) Fenced code block
     fence = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
     if fence:
         try:
@@ -97,13 +43,13 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
         except Exception:
             pass
 
-    # 2) Raw JSON
+    # 2) Direct JSON
     try:
         return json.loads(text)
     except Exception:
         pass
 
-    # 3) Slice from first '{' to last '}'
+    # 3) First '{' ... last '}'
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
@@ -115,19 +61,18 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-# -------------------------
-# Judge call: JSON-only
-# -------------------------
+# ---------------------------------------------------------------------------
+# Judge call (JSON-only)
+# ---------------------------------------------------------------------------
 def call_llm_api_json(prompt: str, max_retries: int = 10, max_tokens: int = 16000) -> Optional[Dict[str, Any]]:
     """
-    Call the judge model and require JSON-only output.
-
-    This function retries across endpoints and uses fault-tolerant JSON parsing.
-    Returns None on persistent failure; the caller is responsible for fallback scoring.
+    Call the judge model and force JSON-only output.
+    Retries across endpoints and uses tolerant JSON parsing.
+    Returns None on failure; callers map it to conservative defaults.
     """
     for attempt in range(max_retries):
         try:
-            api_urls = load_api_urls_from_env()
+            api_urls = API_URLS
             if not api_urls:
                 time.sleep(0.3)
                 continue
@@ -135,7 +80,7 @@ def call_llm_api_json(prompt: str, max_retries: int = 10, max_tokens: int = 1600
             api_url = random.choice(api_urls)
             headers = {"Content-Type": "application/json"}
             data = {
-                "model": "grader",
+                "model": JUDGE_MODEL_NAME,
                 "messages": [
                     {"role": "system", "content":
                         "You are a strict JSON grader. Always return a single JSON object with no extra text, no explanations."},
@@ -153,7 +98,7 @@ def call_llm_api_json(prompt: str, max_retries: int = 10, max_tokens: int = 1600
                 if parsed is not None:
                     return parsed
             else:
-                # Retry on another endpoint next time.
+                # Retry with a different endpoint next time.
                 time.sleep(0.2)
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
             time.sleep(0.2)
@@ -162,18 +107,18 @@ def call_llm_api_json(prompt: str, max_retries: int = 10, max_tokens: int = 1600
     return None
 
 
-# -------------------------
-# Text helpers
-# -------------------------
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 def format_conversation_history(context: str) -> str:
     return context or "No previous conversation."
 
 
-# -------------------------
-# Non-final turns: two modes
-# 1) Checklist mode (preferred; uses required_points)
-# 2) Legacy mode (no required_points; ask judge for a discrete score)
-# -------------------------
+# ---------------------------------------------------------------------------
+# AskMind: non-final turn grading
+# - Checklist mode (preferred): uses required_points
+# - Legacy mode: judge returns a discrete score
+# ---------------------------------------------------------------------------
 def _evaluate_non_final_turn_checklist(
     ori_question: str,
     degraded_info: str,
@@ -184,14 +129,14 @@ def _evaluate_non_final_turn_checklist(
 ) -> float:
     """
     Use required_points as a checklist.
-
-    The judge only decides: per-point hits and whether the assistant prematurely answered.
-    This function then maps the behavior into discrete scores: {-2.0, -0.8, 0.8, 1.0}.
+    The judge only marks per-item coverage and whether the assistant answered prematurely.
+    This function maps the checklist result to the discrete reward set:
+    {-2.0, -0.8, 0.8, 1.0}.
     """
     conversation_history = format_conversation_history(context)
 
-    # Enforce a strict schema (do not let the judge output a score directly).
-    # hits must have the same length as required_points; each element is True/False.
+    # Strict JSON schema: avoid letting the judge output an arbitrary score.
+    # "hits" must have the same length as required_points, each a boolean.
     judge_prompt = f"""
 You will grade an assistant's message in an information-gathering turn of a multi-turn QA.
 
@@ -236,7 +181,7 @@ Return ONLY the following JSON object (no code fences, no extra text):
         hits = parsed.get("hits", [])
         irrelevant = bool(parsed.get("irrelevant_or_redundant", False))
 
-        # Basic validity checks
+        # Basic validation
         if not isinstance(hits, list) or len(hits) != len(required_points):
             return DEFAULT_NON_FINAL_FAIL
 
@@ -246,16 +191,12 @@ Return ONLY the following JSON object (no code fences, no extra text):
         total = len(hits)
         covered = sum(1 for h in hits if bool(h))
 
-        # Scoring rules (tune if needed)
+        # Scoring rule (discrete; aligns with the paper's shaping).
         if covered == 0:
-            # Asked about none of the required points → poor
             return -0.8
         elif covered == total:
-            # Covered all points → best
             return 1.0
         else:
-            # Partial coverage → good
-            # If the assistant asks many irrelevant questions, you can downgrade to -0.8 here (optional).
             return 0.8
 
     except Exception:
@@ -266,8 +207,8 @@ def _evaluate_non_final_turn_legacy(
     ori_question: str, degraded_info: str, current_question: str, context: str, response: str
 ) -> float:
     """
-    Legacy compatibility: if no checklist is provided, ask the judge to output a discrete score
-    (-2.0, -0.8, 0.8, 1.0), then clamp it into the expected buckets.
+    Legacy mode: when no checklist is available, the judge outputs a discrete score
+    (-2.0, -0.8, 0.8, 1.0) which we clamp to the same set.
     """
     conversation_history = format_conversation_history(context)
     prompt = f"""You are evaluating an AI assistant's response in a multi-turn conversation where information is missing.
@@ -322,12 +263,12 @@ def evaluate_non_final_turn(
     response: str,
     required_points: Optional[List[str]] = None,
 ) -> float:
-    """Non-final turn entry point: prefer checklist mode; fall back to legacy mode if no checklist is provided."""
+    """Entry point for non-final turn scoring: checklist first, legacy fallback."""
     if not response or not response.strip():
-        return -2.0  # Empty response = critical failure
+        return -2.0  # Empty response is a critical failure.
 
     if not degraded_info and not required_points:
-        # Without any missing-info context, we cannot evaluate the turn.
+        # No missing-info signal to judge against.
         return -2.0
 
     if required_points and len(required_points) > 0:
@@ -349,15 +290,15 @@ def evaluate_non_final_turn(
         )
 
 
-# -------------------------
-# Final turn: JSON judging
-# -------------------------
+# ---------------------------------------------------------------------------
+# Final turn grading (correct / wrong / still asking)
+# ---------------------------------------------------------------------------
 def evaluate_final_turn(expected_answer: str, current_question: str, context: str, response: str) -> float:
     """
-    Ask the judge to return one of three decisions:
-      - still_asking -> -2.0
-      - wrong       -> -1.0
-      - correct     ->  1.0
+    The judge returns one of three decisions:
+    - still_asking -> -2.0
+    - wrong       -> -1.0
+    - correct     ->  1.0
     """
     if not response or not response.strip():
         return DEFAULT_FINAL_FAIL
@@ -403,14 +344,25 @@ Return ONLY JSON like: {{"decision": "still_asking"}} or {{"decision": "wrong"}}
         return DEFAULT_FINAL_FAIL
 
 
-# -------------------------
-# Top-level entry (supports required_points)
-# -------------------------
-def compute_score_medical_qa(data_source, solution_str, ground_truth, extra_info=None, **kwargs) -> float:
+# ---------------------------------------------------------------------------
+# Entry point for VERL integration
+# ---------------------------------------------------------------------------
+def compute_score_ask_mind_qa(data_source, solution_str, ground_truth, extra_info=None, **kwargs) -> float:
     """
-    Generic multi-turn QA reward function:
-      - Non-final turns: score by required_points checklist hits; fall back to legacy rules if no checklist is provided.
-      - Final turn: only judge whether the assistant is still asking and whether the final answer is correct.
+    Multi-turn QA reward function for the AskMind (intent-deficient) dimension.
+
+    - Non-final turn: checklist-based shaping via required_points (preferred);
+      falls back to a legacy discrete score otherwise.
+    - Final turn: judge correctness only (still_asking/wrong/correct).
+
+    Expected fields in extra_info:
+      - is_final_turn: bool
+      - ori_question: str
+      - degraded_info: str
+      - required_points: Optional[List[str]]
+      - expected_answer: str (final-turn target; falls back to ground_truth)
+      - question: str (current user turn)
+      - context: str (conversation history)
     """
     try:
         extra_info = extra_info or {}
@@ -421,15 +373,15 @@ def compute_score_medical_qa(data_source, solution_str, ground_truth, extra_info
         expected_answer = extra_info.get("expected_answer", "")
         current_question = extra_info.get("question", "")
         context = extra_info.get("context", "")
-        required_points = extra_info.get("required_points", None)  # New field: list[str]
+        required_points = extra_info.get("required_points", None)  # Optional: list[str]
 
-        # Empty response: critical failure
+        # Empty response: critical failure.
         if not solution_str or not solution_str.strip():
             return -2.0 if not is_final_turn else DEFAULT_FINAL_FAIL
 
         if is_final_turn:
             if not expected_answer:
-                # Fall back to ground_truth if expected_answer is missing.
+                # Fallback to ground_truth if no expected_answer is provided.
                 expected_answer = ground_truth
             return evaluate_final_turn(
                 expected_answer=expected_answer,
@@ -438,7 +390,7 @@ def compute_score_medical_qa(data_source, solution_str, ground_truth, extra_info
                 response=solution_str
             )
 
-        # Non-final turn
+        # Non-final turn.
         return evaluate_non_final_turn(
             ori_question=ori_question,
             degraded_info=degraded_info,
@@ -449,23 +401,21 @@ def compute_score_medical_qa(data_source, solution_str, ground_truth, extra_info
         )
 
     except Exception as e:
-        # Unified failure fallback (do not return 0.0).
-        import traceback; print(f"[compute_score_medical_qa] Error: {e}"); traceback.print_exc()
+        # Conservative defaults on any exception (do not return 0.0).
+        import traceback; print(f"[compute_score_ask_mind_qa] Error: {e}"); traceback.print_exc()
         is_final_turn = bool((extra_info or {}).get("is_final_turn", True))
         return DEFAULT_FINAL_FAIL if is_final_turn else DEFAULT_NON_FINAL_FAIL
 
 
-# Backward-compatible alias
-compute_score_multiturn_qa = compute_score_medical_qa
+# Optional backwards-compatible alias.
+compute_score_multiturn_qa = compute_score_ask_mind_qa
 
 
-# -------------------------
-# Self-test
-# -------------------------
+# ---------------------------------------------------------------------------
+# Local smoke test
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    print("Testing API URLs loading...")
-    res = load_api_urls_from_env()
-    print("Loaded API URLs:", res)
+    print("Configured API URLs:", API_URLS)
 
     print("\n" + "="*50)
     print("Testing Non-Final Turn (Checklist)...")

@@ -157,7 +157,12 @@ See `data_pipeline/README.md` for the recommended entry points and parameters.
 
 ## Rubric-guided reward (RLVR)
 
-The `reward/` directory contains a reward implementation and helper scripts used for rubric-guided RLVR-style training. See `reward/readme`.
+The `reward/` directory contains **VERL-compatible** reward functions that implement the paper’s rubric-guided, turn-level shaping:
+
+- AskMind (intent-deficient / missing info): `reward/ask_mind_qa.py` (`data_source = ask_mind_qa`)
+- AskOverconfidence (misleading premises): `reward/overconfidence_qa.py` (`data_source = overconfidence_qa`)
+
+These scripts are meant to be copied into VERL (`verl/utils/reward_score/`) and registered in `default_compute_score()`. Configure judge endpoints via `API_URLS` / `JUDGE_MODEL_NAME`. See `reward/readme` for step-by-step integration, and `reward/readme_for_ai.md` for code-level notes.
 
 ## Citation
 

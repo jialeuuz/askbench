@@ -1,39 +1,80 @@
-reward/yitu.py是意图缺失维度的reward代码
-将其放到/verl/verl/utils/reward_score目录下，同时修改该目录下的__init__.py，在def default_compute_score()函数中添加如下代码即可：
-    if data_source == 'medical_qa':
-        from .medical_qa import compute_score_medical_qa
-        return compute_score_medical_qa(
+# Rubric-guided reward（RLVR）
+
+本目录包含用于 **rubric-guided RLVR** 训练的奖励函数参考实现（论文背景见 `paper.pdf`）。
+
+这里提供两个与论文中 AskBench 两个维度对应的 reward 模块：
+
+- **AskMind（意图缺失 / 信息不足）**：`reward/ask_mind_qa.py`（`data_source = "ask_mind_qa"`）
+- **AskOverconfidence（过度自信 / 错误前提）**：`reward/overconfidence_qa.py`（`data_source = "overconfidence_qa"`）
+
+这两个脚本的设计目标是：直接放到 **VERL** 项目里使用（本仓库不包含 VERL 代码）：
+
+- VERL 仓库：`https://github.com/verl-project/verl.git`
+- 目标目录（在 VERL 仓库内）：`verl/utils/reward_score/`
+
+## 1）配置 Judge 模型 API
+
+两个 reward 文件都会通过 OpenAI-compatible 的 Chat Completions API 调用一个 **Judge 模型**。
+
+训练前请修改每个文件开头的：
+
+- `API_URLS`：judge 服务端点（默认给的是本地 `127.0.0.1` 的 `8012-8015` 端口）
+- `JUDGE_MODEL_NAME`：需要与 vLLM 启动参数 `--served-model-name` 一致（默认 `default`）
+
+论文设置里使用的 judge 模型是 **Qwen3-30B-A3B-Instruct-2507**（以 OpenAI-compatible API 形式部署）。
+
+## 2）集成到 VERL
+
+1）下载 VERL，并找到 reward 目录：
+
+```bash
+git clone https://github.com/verl-project/verl.git
+cd verl
+ls verl/utils/reward_score
+```
+
+2）把 reward 文件拷贝到 VERL：
+
+```bash
+cp /path/to/askQ/reward/ask_mind_qa.py verl/utils/reward_score/ask_mind_qa.py
+cp /path/to/askQ/reward/overconfidence_qa.py verl/utils/reward_score/overconfidence_qa.py
+```
+
+3）修改 `verl/utils/reward_score/__init__.py`，在 `def default_compute_score(...):` 里增加：
+
+```python
+    if data_source == "ask_mind_qa":
+        from .ask_mind_qa import compute_score_ask_mind_qa
+        return compute_score_ask_mind_qa(
             data_source=data_source,
             solution_str=solution_str,
             ground_truth=ground_truth,
-            extra_info=extra_info
+            extra_info=extra_info,
         )
-使用前需要在yitu.py开头API_URLS配置API，用的是a3b模型（Qwen3-30B-A3B-Instruct-2507）
-tools/process_data_for_yitu.py可以将data/17k_dapo_7b_reject_ask.jsonl数据转换为训练需要的格式在if __name__ == "__main__":配置参数即可
-reward/train.sh记录着我用的训练参数，不过不同机器参数配置要调整，比如batchsize之类的，意图缺失维度我测试下来可能用不到2k的上下文和8k的response，显存不够可以缩小一些
-训练趋势查看：
-1. 我写的monitor：if __name__ == "__main__":里配置参数即可，运行后是gradio网页
-2. tensorboard：tensorboard_log/verl_zjl：这里的tensorboard_log默认应该是位于/verl/tensorboard_log下，运行后也是个网页链接，点进去看就行，但是内容很多，我也在探索怎么用，我一般左边勾选模型，中间找到val-aux展开查看reward和score趋势
-    tensorboard --logdir /lpai/volumes/base-mindgpt-ali-sh-mix/zhouyang/verl_run/tensorboard_log
 
-tools/gradio_compare.py可以比较两个模型的输出，control F 搜索api1_input即可找到配置API位置或直接运行在gradio界面配置。
+    if data_source == "overconfidence_qa":
+        from .overconfidence_qa import compute_score_overconfidence_qa
+        return compute_score_overconfidence_qa(
+            data_source=data_source,
+            solution_str=solution_str,
+            ground_truth=ground_truth,
+            extra_info=extra_info,
+        )
+```
 
-标准数据结构格式：
-    ori_question列：原始问题
-    expected_answer列：期望答案
-    pass_rate列：通过率（0.0到16.0,16.0表示16次全通过,都是整数只是存储为了浮点形式）
-    PS：这里部分数据有多余列比如degrade_info，建议不要使用，不确定这种数据是不是基于最新的data_pipeline构建的
+## 3）`extra_info` 的关键字段（概览）
 
-新版yitu训练出来的效果似乎较难拟合，分数比较低，可能是因为用的是数学，或许不应该换成其他类型的数据试试？
-孤狼维度可能也要换成其他类型的数据试试？
+两个模块都实现了 **turn-level** 的 reward：
 
+- 非最终轮：基于 checklist 覆盖率的离散 shaping（与论文一致：`{-2.0, -0.8, 0.8, 1.0}`）。
+- 最终轮：只判 `still_asking / wrong / correct`。
 
-https://huggingface.co/datasets/open-r1/DAPO-Math-17k-Processed
-RAR-med
-RAR-science
-Rubrics as Rewards: Reinforcement Learning Beyond Verifiable Domains
+AskMind 模块（`ask_mind_qa.py`）常用字段：
 
-hostname -i查看服务器ip
+- `is_final_turn`, `ori_question`, `degraded_info`, `required_points`, `question`, `context`, `expected_answer`
 
-造数据模型：
-qwen3-235b-a22b-instruct-2507 
+AskOverconfidence 模块（`overconfidence_qa.py`）常用字段：
+
+- `is_final_turn`, `ori_question`, `overconfidence_info`, `misleading_points`, `question`, `context`, `expected_answer`
+
+更细的代码结构、prompt 与 JSON schema 说明见 `reward/readme_for_ai_zh.md`。

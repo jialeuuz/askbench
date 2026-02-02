@@ -9,7 +9,7 @@ WORLD_SIZE="${WORLD_SIZE:-8}"
 
 # Path to the VERL checkpoint conversion script in your environment.
 # This repo does not vendor merge_verl.py; update this to match your setup.
-MERGE_SCRIPT_PATH="${MERGE_SCRIPT_PATH:-/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/train/RL/verl/checkpoints/merge_verl.py}"
+MERGE_SCRIPT_PATH="${MERGE_SCRIPT_PATH:-/path/to/merge_verl.py}"
 
 # Parallel worker count (recommended: number of CPU cores)
 if command -v nproc >/dev/null 2>&1; then

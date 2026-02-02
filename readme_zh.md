@@ -157,7 +157,12 @@ python ask_eval/data/ask_bench/ask_overconfidence/build_combined_eval.py
 
 ## Rubric-guided reward（RLVR）
 
-`reward/` 目录包含一个 reward 实现与若干辅助脚本，用于 rubric-guided 的 RLVR 风格训练。详见 `reward/readme`。
+`reward/` 目录包含两个 **VERL 可直接使用** 的 reward 函数实现，对应论文中的 rubric-guided、turn-level shaping：
+
+- AskMind（意图缺失 / 信息不足）：`reward/ask_mind_qa.py`（`data_source = ask_mind_qa`）
+- AskOverconfidence（过度自信 / 错误前提）：`reward/overconfidence_qa.py`（`data_source = overconfidence_qa`）
+
+使用方式是将脚本拷贝到 VERL 的 `verl/utils/reward_score/` 并在 `default_compute_score()` 里注册；judge 端点通过 `API_URLS` / `JUDGE_MODEL_NAME` 配置。更详细的接入步骤见 `reward/readme`，代码细节说明见 `reward/readme_for_ai_zh.md`。
 
 ## 引用
 

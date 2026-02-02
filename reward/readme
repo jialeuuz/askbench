@@ -1,68 +1,81 @@
-`reward/yitu.py` implements the reward function for the **AskMind / missing-information** setting.
+# Rubric-guided reward (RLVR)
 
-## Integration (VERL)
+This directory contains reference reward functions used for **rubric-guided RLVR** training (as described in `paper.pdf`).
 
-1) Copy `reward/yitu.py` into `/verl/verl/utils/reward_score/`.
-2) Edit `/verl/verl/utils/reward_score/__init__.py` and add the following branch inside `def default_compute_score()`:
+It provides two reward modules aligned with the paper’s two AskBench dimensions:
 
-```python
-if data_source == "medical_qa":
-    from .medical_qa import compute_score_medical_qa
-    return compute_score_medical_qa(
-        data_source=data_source,
-        solution_str=solution_str,
-        ground_truth=ground_truth,
-        extra_info=extra_info,
-    )
-```
+- **AskMind (intent-deficient / missing information)**: `reward/ask_mind_qa.py` (`data_source = "ask_mind_qa"`)
+- **AskOverconfidence (misleading premises / unjustified certainty)**: `reward/overconfidence_qa.py` (`data_source = "overconfidence_qa"`)
 
-## Configuration
+These scripts are designed to be dropped into the **VERL** project (not vendored in this repo):
 
-- Before use, set `API_URLS` at the top of `yitu.py`. The setup in this repo uses an A3B judge model (Qwen3-30B-A3B-Instruct-2507).
+- VERL repo: `https://github.com/verl-project/verl.git`
+- Target directory (inside the VERL repo): `verl/utils/reward_score/`
 
-## Data preparation
+## 1) Configure the judge model API
 
-- `tools/process_data_for_yitu.py` converts `data/17k_dapo_7b_reject_ask.jsonl` into the training format. Configure parameters under `if __name__ == "__main__":`.
+Both reward modules call a **judge model** via an OpenAI-compatible Chat Completions endpoint.
 
-## Training
+Before training, edit the top of each file and set:
 
-- `reward/train.sh` contains one set of training arguments. You will likely need to adjust them for your hardware (e.g., batch size). For the missing-information dimension, you may not need a 2k context window and an 8k response; reduce them if you run out of VRAM.
+- `API_URLS`: your judge server endpoints (default is local `127.0.0.1` on ports `8012-8015`)
+- `JUDGE_MODEL_NAME`: must match vLLM’s `--served-model-name` (default is `default`)
 
-## Monitoring
+In our paper setup the judge model is **Qwen3-30B-A3B-Instruct-2507** (served as an OpenAI-compatible API).
 
-1) A custom monitor (Gradio): configure parameters under `if __name__ == "__main__":` and run it.
-2) TensorBoard: logs are under `tensorboard_log/verl_zjl` (often rooted at `/verl/tensorboard_log`). Example:
+## 2) Install into VERL
+
+1) Clone VERL and locate the reward directory:
 
 ```bash
-tensorboard --logdir /lpai/volumes/base-mindgpt-ali-sh-mix/zhouyang/verl_run/tensorboard_log
+git clone https://github.com/verl-project/verl.git
+cd verl
+ls verl/utils/reward_score
 ```
 
-## Output comparison
+2) Copy the reward modules into VERL:
 
-- `tools/gradio_compare.py` compares outputs from two models. Search for `api1_input` to configure APIs, or configure them directly in the Gradio UI.
+```bash
+cp /path/to/askQ/reward/ask_mind_qa.py verl/utils/reward_score/ask_mind_qa.py
+cp /path/to/askQ/reward/overconfidence_qa.py verl/utils/reward_score/overconfidence_qa.py
+```
 
-## Expected data schema (notes)
+3) Register them in `verl/utils/reward_score/__init__.py` by adding the following branches inside
+`def default_compute_score(...):`
 
-- `ori_question`: original question
-- `expected_answer`: reference answer
-- `pass_rate`: number of passes (0.0–16.0; 16.0 means 16/16 passes; stored as float but conceptually integer)
-- Note: some datasets may contain extra columns (e.g., `degrade_info`). It is recommended not to rely on them if you are unsure whether they were produced by the latest `data_pipeline`.
+```python
+    if data_source == "ask_mind_qa":
+        from .ask_mind_qa import compute_score_ask_mind_qa
+        return compute_score_ask_mind_qa(
+            data_source=data_source,
+            solution_str=solution_str,
+            ground_truth=ground_truth,
+            extra_info=extra_info,
+        )
 
-## Misc notes
+    if data_source == "overconfidence_qa":
+        from .overconfidence_qa import compute_score_overconfidence_qa
+        return compute_score_overconfidence_qa(
+            data_source=data_source,
+            solution_str=solution_str,
+            ground_truth=ground_truth,
+            extra_info=extra_info,
+        )
+```
 
-- The newer `yitu` setup may be harder to fit (lower scores). This may be because the data is math-heavy; consider trying other data types.
-- The “gulang” ("lone-wolf") dimension may also benefit from trying other data types.
+## 3) Required `extra_info` fields (high level)
 
-References / pointers:
+Both modules implement **turn-level** rewards:
 
-- `open-r1/DAPO-Math-17k-Processed` (dataset)
-- `RAR-med`, `RAR-science`
-- “Rubrics as Rewards: Reinforcement Learning Beyond Verifiable Domains”
+- Non-final turn: discrete shaping based on checklist coverage (aligned with the paper’s `{-2.0, -0.8, 0.8, 1.0}`).
+- Final turn: judge correctness only (`still_asking / wrong / correct`).
 
-Networking:
+AskMind expects (via `extra_info`) keys like:
 
-- `hostname -i` to get the server IP.
+- `is_final_turn`, `ori_question`, `degraded_info`, `required_points`, `question`, `context`, `expected_answer`
 
-Data generation model used in one setup:
+AskOverconfidence expects keys like:
 
-- `qwen3-235b-a22b-instruct-2507`
+- `is_final_turn`, `ori_question`, `overconfidence_info`, `misleading_points`, `question`, `context`, `expected_answer`
+
+For code-level details and prompts, see `reward/readme_for_ai.md`.
