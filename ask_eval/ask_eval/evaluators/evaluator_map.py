@@ -3,7 +3,6 @@ from ask_eval.evaluators.common.medqa import MedQAEvaluator
 from ask_eval.evaluators.common.bbh import BBHEvaluator
 from ask_eval.evaluators.common.gpqa import GpqaEvaluator
 from ask_eval.evaluators.ask import AskEvaluator
-from ask_eval.evaluators.ask_lone import AskLoneEvaluator
 from ask_eval.evaluators.in3_interaction import In3InteractionEvaluator
 from ask_eval.evaluators.healthbench import HealthBenchEvaluator
 
@@ -11,7 +10,6 @@ from ask_eval.evaluators.healthbench import HealthBenchEvaluator
 EVALUATOR_MAP = {
     "math500": Math500Evaluator,
     "bbh": BBHEvaluator,
-    # "bbh_de": BBHDeEvaluator,
     "gpqa": GpqaEvaluator,
     "medqa":MedQAEvaluator,
     "ask_overconfidence":AskEvaluator,
@@ -26,11 +24,6 @@ EVALUATOR_MAP = {
     "ask_mind_gpqade":AskEvaluator,
     "quest_bench":AskEvaluator,
     "in3_interaction":In3InteractionEvaluator,
-    "ask_lone":AskLoneEvaluator,
-    "ask_lone_bbhde":AskLoneEvaluator,
-    "ask_lone_gpqade":AskLoneEvaluator,
-    "ask_lone_math500de":AskLoneEvaluator,
-    "ask_lone_medqade":AskLoneEvaluator,
     "fata_math500":AskEvaluator,
     "fata_medqa":AskEvaluator,
     "healthbench":HealthBenchEvaluator,

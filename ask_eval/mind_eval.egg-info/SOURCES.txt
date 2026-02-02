@@ -20,4 +20,3 @@ scripts/__init__.py
 scripts/main.py
 scripts/run.py
 scripts/run_ask.py
-scripts/run_ask_lone.py

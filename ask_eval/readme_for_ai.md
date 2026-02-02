@@ -5,7 +5,6 @@
 | `scripts/main.py` | 评测入口：逐任务读取配置并调度相应的运行脚本 |
 | `scripts/run.py` | 单轮评测主循环（Math/MedQA 等） |
 | `scripts/run_ask.py` | AskBench 多轮对话评测（被测模型 + 裁判模型） |
-| `scripts/run_ask_lone.py` | AskLone 评测入口，执行通过率估计 + 最终答复判定 |
 | `ask_eval/models/` | 模型封装，统一 API 调用、批量推理与保活逻辑 |
 | `ask_eval/data/` | 数据加载器（当前默认读取 `test.jsonl`） |
 | `ask_eval/evaluators/` | 评估器实现与评测策略 |
@@ -19,7 +18,6 @@
 1. **加载基础配置**：`scripts/main.py` 读取 `--config` 指定的 INI 文件，解析 `[tasks] enabled` 列表。
 2. **逐任务调度**：
    - 默认情况下拼接 `config/common/<task>.ini` 后调用 `scripts/run.py`。
-   - 任务名包含 `ask_lone` 时，调用 `scripts/run_ask_lone.py` 执行通过率评估 + 最终答复评分。
    - 任务名包含 `fata`、`ask` 或 `quest_bench` 时，统一调用 `scripts/run_ask.py` 触发 Judge 驱动的多轮评测（FATA 逻辑见下文）。
    - 配置中若将 `tasks_config_path` 指向其它模板（如 EvalScope/OpenCompass），会走相应分支并在结束后写入最终指标。
 3. **结果写出**：
@@ -41,7 +39,7 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
   - `[generateconfig]`：推理参数（`max_tokens`、`temperature`、`max_concurrent`、`n_attempts` 等）。
   - `[tasks]`：任务开关与任务配置目录。
   - `[path]`：默认数据及结果根目录。
-  - `[evaluatorconfig]`：裁判模型配置，除 AskBench/AskLone 任务外，也会被 math500 / medqa / gpqa 等单轮任务复用。
+  - `[evaluatorconfig]`：裁判模型配置，除 AskBench 任务外，也会被 math500 / medqa / gpqa 等单轮任务复用。
 - **任务配置 (`config/common/<task>.ini`)**
   - 覆写数据路径、任务别名、默认 API 等。
   - `load_merged_config` 会以基础配置为主导，逐段覆盖任务配置。
@@ -60,7 +58,6 @@ INI 配置 -> Merge 任务配置 -> 加载数据 -> 模型批量推理
 - **带降质题面任务**：使用 `degraded_question` 和 `expected_answer`。
 - **AskBench 系列**：样本包含 `degraded_question`、`ori_question`、`expected_answer`、`degraded_info`，以及 `required_points`（列出必须补齐的关键信息，现已覆盖 ask_mind* 与 quest_bench），用于多轮对话模拟。
 - **in3_interaction**：原始数据只提供 `task`、`vague`、`missing_details` 以及示例交互。评测器会将 `task` 重命名为 `ori_question`/`degraded_question`，把 `missing_details` 中每个元素的 `description` 汇总成 `required_points`，并把整段 `missing_details` 转写成 `degraded_info`。由于没有 `expected_answer`，该基准只衡量澄清问答行为（ask-rate/覆盖率/冗余提问等），不计算 Accuracy。
-- **AskLone 系列**：只使用 `ori_question` 与 `expected_answer`，用于单轮作答与“不会做就承认”评估。
 - **HealthBench**：`prompt` 内直接提供多轮对话消息列表（`role`/`content`），`rubrics` 为带 points 的评分项。被测模型在现有对话上生成回复，再将完整对话与单条 rubric 传给裁判模型（模板见 `data/common/healthbench/grader_prompt.py`）；命中 rubric 得到对应分值（含负分），最后用全部正分和做归一得到 0-1 区间得分（最低截断为 0）。
 - **ask_mind 汇总集**：`data/ask_bench/ask_mind/test.jsonl` 由 `ask_mind_math500de/medqade/gpqade/bbhde` 各采样 100 题（总计 400 题）拼接而成，可通过 `python data/ask_bench/ask_mind/build_combined_eval.py` 复现。任务名 `ask_mind` 沿用 AskBench 逻辑与综合得分计算。
 
@@ -192,13 +189,6 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 
 至此，评测框架的核心逻辑与扩展点已经覆盖。后续查看 README 时，可据此快速定位需要修改的模块或配置。
 
-## AskLone 评测逻辑
-
-- **通过率估计**：`AskLoneEvaluator` 会使用原题 (`ori_question`) 触发被测模型独立作答 16 次，通过裁判模型逐次判定正误，得到题目的个人通过率。
-- **最终作答**：随后以提示 “Do your best to solve this problem... If you feel you are unable...” 再次向模型提问，引导其要么给出答案，要么明确表示不会。
-- **计分方式**：最终响应由裁判模型判定为 `correct` / `incorrect` / `refusal`。判定正确记 1 分，错误记 0 分，若模型清晰承认不会，则记 `1 - 通过率` 分，鼓励对难题坦诚放弃。
-- **文件布局**：相关脚本为 `scripts/run_ask_lone.py`，详细日志写入 `ask_lone_detailed_results.json`；生成的 JSON 仅包含 `ori_question` 与 `expected_answer`。
-
 ## 内置任务与评测逻辑速览
 
 | 任务标识 | 数据目录 | 评估器 | 交互模式 | 核心逻辑 |
@@ -213,11 +203,6 @@ AskBench 额外生成 `askbench_detailed_results.json`（包含回合日志和�
 | `ask_overconfidence_gpqa` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | GPQA 子集的 overconfidence 版本。 |
 | `ask_overconfidence_bbh` | `data/ask_bench/ask_overconfidence` | `AskEvaluator` | 多轮裁判 | BBH 子集的 overconfidence 版本。 |
 | `ask_mind` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench 主任务，逻辑同上，题干为 `degraded_question`，真题存放于 `ori_question`，默认数据为四个 ask_mind 子集各 100 题的 400 条混合集。 |
-| `ask_lone` | `data/ask_bench/ask_lone` | `AskLoneEvaluator` | 单轮 + 裁判 | 先估 16 次通过率，再根据最终作答/认输计算得分。 |
-| `ask_lone_bbhde` | `data/ask_bench/ask_lone` | `AskLoneEvaluator` | 单轮 + 裁判 | AskLone 逻辑 + BBH 原题（`ori_question`），题目来源 `ask_mind_bbhde`。 |
-| `ask_lone_gpqade` | `data/ask_bench/ask_lone` | `AskLoneEvaluator` | 单轮 + 裁判 | AskLone 逻辑 + GPQA 原题（`ori_question`），题目来源 `ask_mind_gpqade`。 |
-| `ask_lone_math500de` | `data/ask_bench/ask_lone` | `AskLoneEvaluator` | 单轮 + 裁判 | AskLone 逻辑 + Math500 原题（`ori_question`），题目来源 `ask_mind_math500de`。 |
-| `ask_lone_medqade` | `data/ask_bench/ask_lone` | `AskLoneEvaluator` | 单轮 + 裁判 | AskLone 逻辑 + MedQA 原题（`ori_question`），题目来源 `ask_mind_medqade`。 |
 | `ask_mind_math500de` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench 与 Math500 降质结合，测试模型是否能主动提问补全信息。 |
 | `ask_mind_medqade` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench + MedQA 降质组合，裁判流程同上。 |
 | `ask_mind_gpqade` | `data/ask_bench/ask_mind` | `AskEvaluator` | 多轮裁判 | AskBench + GPQA 降质组合。 |
