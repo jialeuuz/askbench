@@ -12,6 +12,8 @@ Large language models often respond confidently even when a prompt is underspeci
   - **AskMind**: intent-deficient / missing-information queries that require clarification.
   - **AskOverconfidence**: queries with false premises that must be identified and corrected before answering.
 
+For a concise, LLM-oriented guide to the codebase structure and key entry points (useful when debugging/modifying the repo with an LLM), see `readme_for_ai.md` (Chinese: `readme_for_ai_zh.md`).
+
 ## AskBench at a glance
 
 AskBench evaluates clarification as an *interactive* skill. Each example is run with:
@@ -35,6 +37,7 @@ The tested model may ask clarification questions; the judge loop may simulate us
   - Entry script: `data_pipeline/main.py`
 - `reward/`: rubric-guided reward function / training helpers (for RLVR-style training).
 - `tools/`: helper scripts for (1) converting training checkpoints into an inference-ready HuggingFace model dir, and (2) serving a model as an OpenAI-compatible API (vLLM).
+- `readme_for_ai.md`: LLM-oriented repository guide (architecture + key entry points).
 - `paper.pdf`: paper PDF (anonymous submission build).
 
 Chinese copies of the original documentation are preserved with a `_zh` suffix (e.g., `readme_zh.md`, `ask_eval/README_zh.md`).

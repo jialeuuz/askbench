@@ -12,6 +12,8 @@
   - **AskMind**：意图缺失/信息不足的问题，需要通过追问获取关键信息后再回答。
   - **AskOverconfidence**：问题包含错误前提/误导断言，需要识别并纠正后再回答。
 
+如果你希望借助 LLM 快速理解/修改代码结构（便于调试与定位入口），可先阅读 `readme_for_ai.md`（中文版：`readme_for_ai_zh.md`）。
+
 ## AskBench 速览
 
 AskBench 将“澄清”作为一种**交互能力**来评测。每个样本运行时包含：
@@ -35,6 +37,7 @@ AskBench 将“澄清”作为一种**交互能力**来评测。每个样本运�
   - 入口脚本：`data_pipeline/main.py`
 - `reward/`：rubric-guided reward / 训练辅助脚本（用于 RLVR 风格训练）。
 - `tools/`：辅助脚本，用于（1）将训练 checkpoint 转成可推理的 HuggingFace 模型目录，以及（2）用 vLLM 部署 OpenAI-compatible API。
+- `readme_for_ai.md`：面向 LLM 的仓库导读（架构梳理 + 关键入口）。
 - `paper.pdf`：论文 PDF（匿名投稿版本构建产物）。
 
 原中文文档已用 `_zh` 后缀保留（例如 `ask_eval/README_zh.md`）。
