@@ -158,6 +158,9 @@ Then configure `ask_eval/config/base.ini` (or `ask_eval/run.sh`) to point at the
 
 ## Datasets
 
+- **Hugging Face (recommended download links)**:
+  - AskBench evaluation data: https://huggingface.co/datasets/jialeuuz/askbench_bench
+  - AskMind/AskOverconfidence training trajectories: https://huggingface.co/datasets/jialeuuz/askbench_train
 - **Evaluation data (tracked in this repo)**: under `ask_eval/data/` (AskBench subsets + standard benchmarks used by the pipeline).
 - **Optional training / intermediate data (not tracked)**: you can place large local files under `data/` (this repo’s `.gitignore` ignores `data/` by default).
 

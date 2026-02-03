@@ -158,6 +158,9 @@ bash tools/vllm.sh
 
 ## 数据集
 
+- **Hugging Face（推荐下载链接）**：
+  - AskBench 评测数据：https://huggingface.co/datasets/jialeuuz/askbench_bench
+  - AskMind/AskOverconfidence 训练轨迹：https://huggingface.co/datasets/jialeuuz/askbench_train
 - **评测数据（仓库跟踪）**：位于 `ask_eval/data/`（AskBench 子集 + pipeline 使用的常规 benchmark）。
 - **可选训练/中间数据（不跟踪）**：可放在根目录的 `data/` 下（本仓库默认 `.gitignore` 忽略 `data/`）。
 
