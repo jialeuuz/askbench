@@ -2,6 +2,8 @@
 
 从单轮 QA 样本构建 AskBench 风格的多轮对话数据（AskMind / AskOverconfidence），并提供可选的“直接回答→裁判→纠错”短流程策略。
 
+除训练数据外，该 pipeline 也可用于把其他常规 QA bench 快速改造成 **AskMind/AskOverconfidence 风格的评测数据**（生成变体问题 + rubric/checklist），从而更容易拓展到新领域。
+
 - **AskMind（缺失信息 / intent-deficient）**：把原始问题劣化为 `degraded_question`，同时生成缺失点清单 `required_points`，再进行多轮追问与用户模拟，最后作答并由裁判判断；必要时强制修正以保证最终答案正确。
 - **AskOverconfidence（错误前提 / misleading claims）**：在保留原题 givens 的同时，注入“自信但错误”的断言，得到 `overconfidence_question` 与 `misleading_points`，再围绕误导点进行纠偏与作答。
 

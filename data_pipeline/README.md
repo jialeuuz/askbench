@@ -2,6 +2,8 @@
 
 Build AskBench-style multi-turn dialogue data (AskMind / AskOverconfidence) from single-turn QA examples, with an optional short-path strategy (“direct answer → judge → correction”).
 
+Besides training trajectories, the same pipeline can also be used to convert other QA benchmarks into **AskMind/AskOverconfidence-style evaluation data** (by generating variant questions + checklist/rubrics), making it easy to extend AskBench to new domains.
+
 - **AskMind (missing information / intent-deficient)**: degrade the original question into `degraded_question`, generate a checklist `required_points`, then run a multi-turn loop (ask → simulated user reply → answer → judge). If needed, force-correct the final answer to ensure correctness.
 - **AskOverconfidence (false premises / misleading claims)**: keep the original givens verbatim while injecting confidently-stated wrong intermediate claims, producing `overconfidence_question` and `misleading_points`. The assistant must identify and correct the misleading points before answering.
 

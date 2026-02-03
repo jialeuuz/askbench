@@ -6,13 +6,12 @@
 [![HuggingFace (Bench)](https://img.shields.io/badge/HuggingFace-askbench__bench-yellow?logo=huggingface&logoColor=black)](https://huggingface.co/datasets/jialeuuz/askbench_bench)
 [![HuggingFace (Train)](https://img.shields.io/badge/HuggingFace-askbench__train-yellow?logo=huggingface&logoColor=black)](https://huggingface.co/datasets/jialeuuz/askbench_train)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](#环境与安装)
 
 [中文](readme_zh.md) | [English](README.md) | [LLM 导读](readme_for_ai_zh.md)
 
 </div>
 
-本仓库包含论文 **“When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification”** 的代码与相关资源（见 `paper.pdf`）。
+本仓库包含论文 **“When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification”** 的代码与相关资源。arXiv 版本正在审核中；你可以先阅读本仓库内的 PDF：🔗 [paper.pdf](paper.pdf)。
 
 大语言模型在面对**信息不足**或**包含误导前提**的提问时，往往仍会直接作答，从而产生幻觉或强化错误认知。本项目研究模型应该**何时**以及**问什么**来进行澄清，并提供：
 
@@ -23,6 +22,14 @@
   - **AskOverconfidence**：问题包含错误前提/误导断言，需要识别并纠正后再回答。
 
 如果你希望借助 LLM 快速理解/修改代码结构（便于调试与定位入口），可先阅读 `readme_for_ai.md`（中文版：`readme_for_ai_zh.md`）。
+
+## 📌 目录
+
+- 🚀 评测： [运行评测](#evaluation)
+- 🎯 训练： [RLVR reward + VERL 接入](#training)
+- 🧪 data pipeline： [构建 AskBench 风格数据](#data-pipeline)
+- 🛠️ 工具： [checkpoint 合并 + OpenAI-compatible 部署](#tools)
+- 📦 数据集： [Hugging Face 链接](#datasets)
 
 ## ✨ AskBench 速览
 
@@ -49,12 +56,34 @@ AskBench 的设计旨在让“澄清能力”可规模化评测：
 - **高拓展性**：为标准 QA 生成“变体问题”（degraded 或注入误导前提）并配套 checklist，即可快速改造为交互式评测。
 - **易用性强**：评测只依赖 OpenAI-compatible API（被测模型 + judge），可通过 vLLM 等工具本地部署。
 
-## 📈 论文结果（亮点）
+## 📈 论文结果
 
 论文中，rubric-guided RLVR 在 AskBench 多轮评测上显著提升澄清能力，同时能保持（甚至提升）单轮 QA 等通用能力。
 
-- AskMind：Acc. 0.332 → 0.615；Cov. 0.214 → 0.679（Table 4）
-- AskOverconfidence：checkpoint coverage 0.188 → 0.894（Table 4）
+### AskBench 多轮澄清（Table 4）
+
+| 模型 | AskMind acc | AskMind cov | AskMind unq | AskOverconfidence acc | AskOverconfidence cov | AskOverconfidence unq |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gemini | 0.567 | 0.124 | 0.000 | 0.840 | 0.749 | 0.025 |
+| GPT | 0.495 | 0.118 | 0.000 | 0.730 | 0.602 | 0.015 |
+| Qwen | 0.332 | 0.214 | 0.003 | 0.443 | 0.188 | 0.008 |
+| FATA | 0.491 | 0.503 | 0.020 | – | – | – |
+| AskToAct | 0.197 | 0.240 | 0.043 | – | – | – |
+| OursI | 0.615 | 0.679 | 0.030 | 0.628 | 0.641 | 0.210 |
+| OursO | 0.617 | 0.807 | 0.141 | 0.548 | 0.894 | 0.463 |
+
+### 严格两轮协议（“Hard”, Table 5）
+
+严格两轮协议要求：第 1 轮必须澄清/纠偏，第 2 轮必须直接给最终答案（不能再追问）。
+
+| 模型 | AskMind acc | AskMind cov | AskMind unq | AskOverconfidence acc | AskOverconfidence cov | AskOverconfidence unq |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gemini | 0.0551 | 0.2206 | 0.0000 | 0.0100 | 0.7350 | 0.0225 |
+| GPT | 0.0352 | 0.2035 | 0.0000 | 0.0000 | 0.5865 | 0.0075 |
+| Qwen | 0.0176 | 0.1288 | 0.0000 | 0.0050 | 0.1955 | 0.0050 |
+| Self-Alert | – | – | – | 0.0000 | 0.1400 | 0.0000 |
+| OursI | 0.2714 | 0.5013 | 0.0050 | 0.1975 | 0.5065 | 0.0725 |
+| OursO | 0.1965 | 0.4235 | 0.0176 | 0.2600 | 0.7778 | 0.2675 |
 
 单轮准确率与 HealthBench 得分（Table 3）：
 
@@ -70,7 +99,7 @@ AskBench 的设计旨在让“澄清能力”可规模化评测：
   - 使用说明：`ask_eval/README.md`
   - 实现细节/调试定位：`ask_eval/readme_for_ai.md`
   - 入口脚本：`ask_eval/run.sh`
-- `data_pipeline/`：数据构建 pipeline，用于生成 AskBench 风格的多轮对话训练数据。
+- `data_pipeline/`：数据构建 pipeline，用于生成 AskBench 风格的多轮对话数据（**训练 + 评测**），以及把常规 QA bench 快速改造为 AskMind/AskOverconfidence 风格的变体与 rubric/checklist。
   - 使用说明：`data_pipeline/README.md`
   - 实现细节/调试定位：`data_pipeline/readme_for_ai.md`
   - 入口脚本：`data_pipeline/main.py`
@@ -100,6 +129,7 @@ pip install -e ./ask_eval
 pip install -r data_pipeline/requirements.txt
 ```
 
+<a id="evaluation"></a>
 ## 🚀 Quickstart：运行评测（AskBench + 标准 QA）
 
 `ask_eval` 假设你有一个 **OpenAI-compatible** 的 chat-completions API，分别用于：
@@ -123,6 +153,7 @@ python scripts/main.py --config config/base.ini
 - 可在 `ask_eval/run.sh` 中设置 `STRICT_MODE=1` 来启用更严格的两轮协议（第一轮必须澄清/纠正，第二轮必须直接给最终答案且不能再追问）。
 - 评测输出写入 `ask_eval/results/<task>/<task_name>/`，并在 `ask_eval/results/final_result.txt` 追加聚合汇总行。
 
+<a id="tools"></a>
 ## 🛠️ 工具：checkpoint 转换 + OpenAI-compatible API 部署
 
 `ask_eval` 通过 OpenAI-compatible 的 chat-completions API 调用模型。如果你的工作流是基于 API 调用，这里提供了 `tools/` 下两个常用脚本，对应一个常见流程：
@@ -166,11 +197,12 @@ bash tools/vllm.sh
 - `[model] api_url = http://<host>:<port>/v1`
 - `[model] model_name = default`（需与 `tools/vllm.sh` 中的 `--served-model-name` 一致）
 
+<a id="datasets"></a>
 ## 📦 数据集
 
 - **Hugging Face（推荐下载链接）**：
-  - AskBench 评测数据：https://huggingface.co/datasets/jialeuuz/askbench_bench
-  - AskMind/AskOverconfidence 训练轨迹：https://huggingface.co/datasets/jialeuuz/askbench_train
+  - 🤗 AskBench 评测数据：[jialeuuz/askbench_bench](https://huggingface.co/datasets/jialeuuz/askbench_bench)
+  - 🤗 AskMind/AskOverconfidence 训练轨迹：[jialeuuz/askbench_train](https://huggingface.co/datasets/jialeuuz/askbench_train)
 - **评测数据（仓库跟踪）**：位于 `ask_eval/data/`（AskBench 子集 + pipeline 使用的常规 benchmark）。
 - **可选训练/中间数据（不跟踪）**：可放在根目录的 `data/` 下（本仓库默认 `.gitignore` 忽略 `data/`）。
 
@@ -191,12 +223,14 @@ python ask_eval/data/ask_bench/ask_mind/build_combined_eval.py
 python ask_eval/data/ask_bench/ask_overconfidence/build_combined_eval.py
 ```
 
-## 🧪 Quickstart：构建 AskBench 风格训练对话数据
+<a id="data-pipeline"></a>
+## 🧪 Quickstart：构建 AskBench 风格数据（训练 + 评测）
 
-数据构建 pipeline 会生成多轮对话（澄清 → 模拟用户回复 → 作答 → 评审），并把成功样本与失败元信息一起写出，便于断点续跑与排查问题。
+数据构建 pipeline 可以生成 AskBench 风格的多轮对话（澄清 → 模拟用户回复 → 作答 → 评审）用于训练；同时也可以把其他 QA bench 快速改造为 AskMind/AskOverconfidence 风格的评测数据（生成变体问题 + checklist/rubrics）。
 
 具体入口与参数说明见 `data_pipeline/README.md`。
 
+<a id="training"></a>
 ## 🎯 Rubric-guided reward（RLVR）
 
 `reward/` 目录包含两个 **VERL 可直接使用** 的 reward 函数实现，对应论文中的 rubric-guided、turn-level shaping：

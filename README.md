@@ -6,13 +6,12 @@
 [![HuggingFace (Bench)](https://img.shields.io/badge/HuggingFace-askbench__bench-yellow?logo=huggingface&logoColor=black)](https://huggingface.co/datasets/jialeuuz/askbench_bench)
 [![HuggingFace (Train)](https://img.shields.io/badge/HuggingFace-askbench__train-yellow?logo=huggingface&logoColor=black)](https://huggingface.co/datasets/jialeuuz/askbench_train)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](#setup)
 
 English | [中文](readme_zh.md) | [LLM Guide](readme_for_ai.md)
 
 </div>
 
-This repository contains the code and assets for the paper **“When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification”** (see `paper.pdf`).
+This repository contains the code and assets for the paper **“When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification”**. The arXiv version is under review; you can read the current PDF here: 🔗 [paper.pdf](paper.pdf).
 
 Large language models often respond confidently even when a prompt is underspecified or contains misleading premises. This project studies **when** a model should ask for clarification and **what** it should ask, and provides:
 
@@ -23,6 +22,14 @@ Large language models often respond confidently even when a prompt is underspeci
   - **AskOverconfidence**: queries with false premises that must be identified and corrected before answering.
 
 For a concise, LLM-oriented guide to the codebase structure and key entry points (useful when debugging/modifying the repo with an LLM), see `readme_for_ai.md` (Chinese: `readme_for_ai_zh.md`).
+
+## 📌 Table of contents
+
+- 🚀 Evaluation: [run evaluation](#evaluation)
+- 🎯 Training: [RLVR reward + VERL integration](#training)
+- 🧪 Data pipeline: [build AskBench-style data](#data-pipeline)
+- 🛠️ Tools: [checkpoint merge + OpenAI-compatible serving](#tools)
+- 📦 Datasets: [Hugging Face links](#datasets)
 
 ## ✨ AskBench at a glance
 
@@ -49,14 +56,36 @@ AskBench is designed to make clarification **measurable and scalable**:
 - **Extensible**: standard QA can be adapted by generating a “variant question” (degraded or misleading) plus a checklist.
 - **Easy to adopt**: the evaluation pipeline only requires OpenAI-compatible API endpoints (candidate + judge), which can be served locally (e.g., via vLLM).
 
-## 📈 Results (paper highlights)
+## 📈 Results
 
 In the paper, rubric-guided RLVR improves AskBench multi-turn clarification performance while preserving (and often improving) broad QA capabilities.
 
-- AskMind: Acc. 0.332 → 0.615; Cov. 0.214 → 0.679 (Table 4)
-- AskOverconfidence: checkpoint coverage 0.188 → 0.894 (Table 4)
+### AskBench multi-turn clarification (Table 4)
 
-Single-turn accuracy and HealthBench score (Table 3):
+| Model | AskMind acc | AskMind cov | AskMind unq | AskOverconfidence acc | AskOverconfidence cov | AskOverconfidence unq |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gemini | 0.567 | 0.124 | 0.000 | 0.840 | 0.749 | 0.025 |
+| GPT | 0.495 | 0.118 | 0.000 | 0.730 | 0.602 | 0.015 |
+| Qwen | 0.332 | 0.214 | 0.003 | 0.443 | 0.188 | 0.008 |
+| FATA | 0.491 | 0.503 | 0.020 | – | – | – |
+| AskToAct | 0.197 | 0.240 | 0.043 | – | – | – |
+| OursI | 0.615 | 0.679 | 0.030 | 0.628 | 0.641 | 0.210 |
+| OursO | 0.617 | 0.807 | 0.141 | 0.548 | 0.894 | 0.463 |
+
+### Strict two-turn protocol (“Hard”, Table 5)
+
+Under the strict two-turn protocol, turn 1 must clarify/correct; turn 2 must answer directly (no more follow-ups).
+
+| Model | AskMind acc | AskMind cov | AskMind unq | AskOverconfidence acc | AskOverconfidence cov | AskOverconfidence unq |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gemini | 0.0551 | 0.2206 | 0.0000 | 0.0100 | 0.7350 | 0.0225 |
+| GPT | 0.0352 | 0.2035 | 0.0000 | 0.0000 | 0.5865 | 0.0075 |
+| Qwen | 0.0176 | 0.1288 | 0.0000 | 0.0050 | 0.1955 | 0.0050 |
+| Self-Alert | – | – | – | 0.0000 | 0.1400 | 0.0000 |
+| OursI | 0.2714 | 0.5013 | 0.0050 | 0.1975 | 0.5065 | 0.0725 |
+| OursO | 0.1965 | 0.4235 | 0.0176 | 0.2600 | 0.7778 | 0.2675 |
+
+### Single-turn QA + HealthBench (Table 3)
 
 | Model | Math500 | MedQA | HealthBench | GPQA-d | BBH |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -70,7 +99,7 @@ Single-turn accuracy and HealthBench score (Table 3):
   - User guide: `ask_eval/README.md`
   - Implementation notes: `ask_eval/readme_for_ai.md`
   - Entry script: `ask_eval/run.sh`
-- `data_pipeline/`: data construction pipeline for building AskBench-style multi-turn dialogues.
+- `data_pipeline/`: data construction pipeline for building AskBench-style data for **training and evaluation** (e.g., adapting standard QA into AskMind/AskOverconfidence-style variants + checklists).
   - User guide: `data_pipeline/README.md`
   - Implementation notes: `data_pipeline/readme_for_ai.md`
   - Entry script: `data_pipeline/main.py`
@@ -100,6 +129,7 @@ pip install -e ./ask_eval
 pip install -r data_pipeline/requirements.txt
 ```
 
+<a id="evaluation"></a>
 ## 🚀 Quickstart: run evaluation (AskBench + standard QA)
 
 `ask_eval` expects an **OpenAI-compatible** chat-completions API for:
@@ -123,6 +153,7 @@ Notes:
 - You can enable a stricter two-turn AskBench protocol via `STRICT_MODE=1` in `ask_eval/run.sh`.
 - Evaluation outputs are written under `ask_eval/results/<task>/<task_name>/`, and an aggregated line is appended to `ask_eval/results/final_result.txt`.
 
+<a id="tools"></a>
 ## 🛠️ Tools: checkpoint conversion + OpenAI-compatible serving
 
 `ask_eval` calls models via an OpenAI-compatible chat-completions API. If your workflow is API-based, the two scripts under `tools/` are intended to cover a common flow:
@@ -166,11 +197,12 @@ Then configure `ask_eval/config/base.ini` (or `ask_eval/run.sh`) to point at the
 - `[model] api_url = http://<host>:<port>/v1`
 - `[model] model_name = default` (must match `--served-model-name` in `tools/vllm.sh`)
 
+<a id="datasets"></a>
 ## 📦 Datasets
 
 - **Hugging Face (recommended download links)**:
-  - AskBench evaluation data: https://huggingface.co/datasets/jialeuuz/askbench_bench
-  - AskMind/AskOverconfidence training trajectories: https://huggingface.co/datasets/jialeuuz/askbench_train
+  - 🤗 AskBench evaluation data: [jialeuuz/askbench_bench](https://huggingface.co/datasets/jialeuuz/askbench_bench)
+  - 🤗 AskMind/AskOverconfidence training trajectories: [jialeuuz/askbench_train](https://huggingface.co/datasets/jialeuuz/askbench_train)
 - **Evaluation data (tracked in this repo)**: under `ask_eval/data/` (AskBench subsets + standard benchmarks used by the pipeline).
 - **Optional training / intermediate data (not tracked)**: you can place large local files under `data/` (this repo’s `.gitignore` ignores `data/` by default).
 
@@ -191,12 +223,14 @@ python ask_eval/data/ask_bench/ask_mind/build_combined_eval.py
 python ask_eval/data/ask_bench/ask_overconfidence/build_combined_eval.py
 ```
 
-## 🧪 Quickstart: build AskBench-style training dialogues
+<a id="data-pipeline"></a>
+## 🧪 Quickstart: build AskBench-style data (training + evaluation)
 
-The data construction pipeline generates multi-turn conversations (clarify → simulated user reply → answer → judge), and writes successful items plus failure metadata for debugging/resume.
+The data construction pipeline can generate AskBench-style multi-turn conversations (clarify → simulated user reply → answer → judge) for training, and can also be used to adapt other QA benchmarks into AskMind/AskOverconfidence-style evaluation data (by generating variant questions + checklist/rubrics).
 
 See `data_pipeline/README.md` for the recommended entry points and parameters.
 
+<a id="training"></a>
 ## 🎯 Rubric-guided reward (RLVR)
 
 The `reward/` directory contains **VERL-compatible** reward functions that implement the paper’s rubric-guided, turn-level shaping:
