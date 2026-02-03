@@ -60,38 +60,42 @@ AskBench is designed to make clarification **measurable and scalable**:
 
 In the paper, rubric-guided RLVR improves AskBench multi-turn clarification performance while preserving (and often improving) broad QA capabilities.
 
-### AskBench multi-turn clarification (Table 4)
+### AskBench multi-turn clarification (Standard protocol, Table 4)
 
-| Model | AskMind acc | AskMind cov | AskMind unq | AskOverconfidence acc | AskOverconfidence cov | AskOverconfidence unq |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Gemini | 0.567 | 0.124 | 0.000 | 0.840 | 0.749 | 0.025 |
-| GPT | 0.495 | 0.118 | 0.000 | 0.730 | 0.602 | 0.015 |
-| Qwen | 0.332 | 0.214 | 0.003 | 0.443 | 0.188 | 0.008 |
-| FATA | 0.491 | 0.503 | 0.020 | – | – | – |
-| AskToAct | 0.197 | 0.240 | 0.043 | – | – | – |
-| OursI | 0.615 | 0.679 | 0.030 | 0.628 | 0.641 | 0.210 |
-| OursO | 0.617 | 0.807 | 0.141 | 0.548 | 0.894 | 0.463 |
+Metrics:
+
+- `acc` (accuracy): whether the final answer is correct (judge-graded).
+- `cov` (checkpoint coverage): how much of the checklist is explicitly covered before answering (`required_points` for AskMind; `misleading_points` for AskOverconfidence).
+
+| Model | AskMind `acc` | AskMind `cov` | AskOverconfidence `acc` | AskOverconfidence `cov` |
+| --- | :---: | :---: | :---: | :---: |
+| Google Gemini | 0.567 | 0.124 | 0.840 | 0.749 |
+| OpenAI GPT | 0.495 | 0.118 | 0.730 | 0.602 |
+| Qwen (baseline) | 0.332 | 0.214 | 0.443 | 0.188 |
+| Our AskMind RLVR policy | 0.615 | 0.679 | 0.628 | 0.641 |
+| Our AskOverconfidence RLVR policy | 0.617 | 0.807 | 0.548 | 0.894 |
 
 ### Strict two-turn protocol (“Hard”, Table 5)
 
 Under the strict two-turn protocol, turn 1 must clarify/correct; turn 2 must answer directly (no more follow-ups).
 
-| Model | AskMind acc | AskMind cov | AskMind unq | AskOverconfidence acc | AskOverconfidence cov | AskOverconfidence unq |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Gemini | 0.0551 | 0.2206 | 0.0000 | 0.0100 | 0.7350 | 0.0225 |
-| GPT | 0.0352 | 0.2035 | 0.0000 | 0.0000 | 0.5865 | 0.0075 |
-| Qwen | 0.0176 | 0.1288 | 0.0000 | 0.0050 | 0.1955 | 0.0050 |
-| Self-Alert | – | – | – | 0.0000 | 0.1400 | 0.0000 |
-| OursI | 0.2714 | 0.5013 | 0.0050 | 0.1975 | 0.5065 | 0.0725 |
-| OursO | 0.1965 | 0.4235 | 0.0176 | 0.2600 | 0.7778 | 0.2675 |
+| Model | AskMind `acc` | AskMind `cov` | AskOverconfidence `acc` | AskOverconfidence `cov` |
+| --- | :---: | :---: | :---: | :---: |
+| Google Gemini | 0.0551 | 0.2206 | 0.0100 | 0.7350 |
+| OpenAI GPT | 0.0352 | 0.2035 | 0.0000 | 0.5865 |
+| Qwen (baseline) | 0.0176 | 0.1288 | 0.0050 | 0.1955 |
+| Our AskMind RLVR policy | 0.2714 | 0.5013 | 0.1975 | 0.5065 |
+| Our AskOverconfidence RLVR policy | 0.1965 | 0.4235 | 0.2600 | 0.7778 |
+
+Note: in the paper, our AskMind RLVR policy is denoted as *OursI*, and our AskOverconfidence RLVR policy as *OursO*.
 
 ### Single-turn QA + HealthBench (Table 3)
 
 | Model | Math500 | MedQA | HealthBench | GPQA-d | BBH |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Qwen | 0.760 | 0.653 | 0.526 | 0.309 | 0.506 |
-| OursI | 0.780 | 0.936 | 0.606 | 0.497 | 0.758 |
-| OursO | 0.720 | 0.992 | 0.559 | 0.781 | 0.760 |
+| Qwen (baseline) | 0.760 | 0.653 | 0.526 | 0.309 | 0.506 |
+| Our AskMind RLVR policy | 0.780 | 0.936 | 0.606 | 0.497 | 0.758 |
+| Our AskOverconfidence RLVR policy | 0.720 | 0.992 | 0.559 | 0.781 | 0.760 |
 
 ## 🧩 Repository layout
 
