@@ -69,11 +69,11 @@ AskBench 的设计旨在让“澄清能力”可规模化评测：
 
 | 模型 | AskMind `acc` | AskMind `cov` | AskOverconfidence `acc` | AskOverconfidence `cov` |
 | --- | :---: | :---: | :---: | :---: |
-| Google Gemini | 0.567 | 0.124 | 0.840 | 0.749 |
-| OpenAI GPT | 0.495 | 0.118 | 0.730 | 0.602 |
-| Qwen（baseline） | 0.332 | 0.214 | 0.443 | 0.188 |
-| 我们的 AskMind RLVR 策略 | 0.615 | 0.679 | 0.628 | 0.641 |
-| 我们的 AskOverconfidence RLVR 策略 | 0.617 | 0.807 | 0.548 | 0.894 |
+| Gemini-2.5-Pro | 0.567 | 0.124 | 0.840 | 0.749 |
+| GPT-4.1 | 0.495 | 0.118 | 0.730 | 0.602 |
+| Qwen2.5-7B-Instruct | 0.332 | 0.214 | 0.443 | 0.188 |
+| OursI（AskMind；ours） | 0.615 | 0.679 | 0.628 | 0.641 |
+| OursO（AskOverconfidence；ours） | 0.617 | 0.807 | 0.548 | 0.894 |
 
 ### 严格两轮协议（“Hard”, Table 5）
 
@@ -81,21 +81,21 @@ AskBench 的设计旨在让“澄清能力”可规模化评测：
 
 | 模型 | AskMind `acc` | AskMind `cov` | AskOverconfidence `acc` | AskOverconfidence `cov` |
 | --- | :---: | :---: | :---: | :---: |
-| Google Gemini | 0.0551 | 0.2206 | 0.0100 | 0.7350 |
-| OpenAI GPT | 0.0352 | 0.2035 | 0.0000 | 0.5865 |
-| Qwen（baseline） | 0.0176 | 0.1288 | 0.0050 | 0.1955 |
-| 我们的 AskMind RLVR 策略 | 0.2714 | 0.5013 | 0.1975 | 0.5065 |
-| 我们的 AskOverconfidence RLVR 策略 | 0.1965 | 0.4235 | 0.2600 | 0.7778 |
+| Gemini-2.5-Pro | 0.0551 | 0.2206 | 0.0100 | 0.7350 |
+| GPT-4.1 | 0.0352 | 0.2035 | 0.0000 | 0.5865 |
+| Qwen2.5-7B-Instruct | 0.0176 | 0.1288 | 0.0050 | 0.1955 |
+| OursI（AskMind；ours） | 0.2714 | 0.5013 | 0.1975 | 0.5065 |
+| OursO（AskOverconfidence；ours） | 0.1965 | 0.4235 | 0.2600 | 0.7778 |
 
-注：论文中我们的 AskMind RLVR 策略记为 *OursI*，AskOverconfidence RLVR 策略记为 *OursO*。
+注：论文中 Gemini 指 Gemini-2.5-Pro，GPT 指 GPT-4.1，Qwen 指 Qwen2.5-7B-Instruct。
 
 单轮准确率与 HealthBench 得分（Table 3）：
 
 | 模型 | Math500 | MedQA | HealthBench | GPQA-d | BBH |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Qwen（baseline） | 0.760 | 0.653 | 0.526 | 0.309 | 0.506 |
-| 我们的 AskMind RLVR 策略 | 0.780 | 0.936 | 0.606 | 0.497 | 0.758 |
-| 我们的 AskOverconfidence RLVR 策略 | 0.720 | 0.992 | 0.559 | 0.781 | 0.760 |
+| Qwen2.5-7B-Instruct | 0.760 | 0.653 | 0.526 | 0.309 | 0.506 |
+| OursI（AskMind；ours） | 0.780 | 0.936 | 0.606 | 0.497 | 0.758 |
+| OursO（AskOverconfidence；ours） | 0.720 | 0.992 | 0.559 | 0.781 | 0.760 |
 
 ## 🧩 仓库结构
 
