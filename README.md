@@ -94,6 +94,8 @@ OursI and OursO are our rubric-trained models for AskMind and AskOverconfidence,
 
 | Model | Math500 | MedQA | HealthBench | GPQA-d | BBH |
 | --- | ---: | ---: | ---: | ---: | ---: |
+| Gemini-2.5-Pro | 0.952 | 0.943 | 0.649 | 0.864 | 0.946 |
+| GPT-4.1 | 0.936 | 0.918 | 0.645 | 0.701 | 0.708 |
 | Qwen2.5-7B-Instruct | 0.760 | 0.653 | 0.526 | 0.309 | 0.506 |
 | OursI | 0.780 | 0.936 | 0.606 | 0.497 | 0.758 |
 | OursO | 0.720 | 0.992 | 0.559 | 0.781 | 0.760 |
