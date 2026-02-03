@@ -1,6 +1,16 @@
+<div align="center">
+
 # When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification
 
+[![论文](https://img.shields.io/badge/Paper-PDF-blue?logo=adobeacrobatreader&logoColor=white)](paper.pdf)
+[![HuggingFace (Bench)](https://img.shields.io/badge/HuggingFace-askbench__bench-yellow?logo=huggingface&logoColor=black)](https://huggingface.co/datasets/jialeuuz/askbench_bench)
+[![HuggingFace (Train)](https://img.shields.io/badge/HuggingFace-askbench__train-yellow?logo=huggingface&logoColor=black)](https://huggingface.co/datasets/jialeuuz/askbench_train)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](#环境与安装)
+
 [中文](readme_zh.md) | [English](README.md) | [LLM 导读](readme_for_ai_zh.md)
+
+</div>
 
 本仓库包含论文 **“When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification”** 的代码与相关资源（见 `paper.pdf`）。
 
@@ -14,7 +24,7 @@
 
 如果你希望借助 LLM 快速理解/修改代码结构（便于调试与定位入口），可先阅读 `readme_for_ai.md`（中文版：`readme_for_ai_zh.md`）。
 
-## AskBench 速览
+## ✨ AskBench 速览
 
 AskBench 将“澄清”作为一种**交互能力**来评测。每个样本运行时包含：
 
@@ -25,7 +35,7 @@ AskBench 将“澄清”作为一种**交互能力**来评测。每个样本运�
 
 整体流程是：被测模型可提澄清问题 → Judge 视情况模拟用户回复 → 产出最终答案 → Judge 给出判定与统计。
 
-## 为什么是 AskBench？
+## 🔎 为什么是 AskBench？
 
 在真实交互中，用户问题常常 **信息不足** 或包含 **误导前提**。传统单轮 benchmark 更擅长衡量“答得对不对”，但很难衡量：
 
@@ -39,7 +49,7 @@ AskBench 的设计旨在让“澄清能力”可规模化评测：
 - **高拓展性**：为标准 QA 生成“变体问题”（degraded 或注入误导前提）并配套 checklist，即可快速改造为交互式评测。
 - **易用性强**：评测只依赖 OpenAI-compatible API（被测模型 + judge），可通过 vLLM 等工具本地部署。
 
-## 论文结果（亮点）
+## 📈 论文结果（亮点）
 
 论文中，rubric-guided RLVR 在 AskBench 多轮评测上显著提升澄清能力，同时能保持（甚至提升）单轮 QA 等通用能力。
 
@@ -54,7 +64,7 @@ AskBench 的设计旨在让“澄清能力”可规模化评测：
 | OursI | 0.780 | 0.936 | 0.606 | 0.497 | 0.758 |
 | OursO | 0.720 | 0.992 | 0.559 | 0.781 | 0.760 |
 
-## 仓库结构
+## 🧩 仓库结构
 
 - `ask_eval/`：评测 pipeline（单轮 + AskBench 风格的多轮评测）。
   - 使用说明：`ask_eval/README.md`
@@ -71,7 +81,7 @@ AskBench 的设计旨在让“澄清能力”可规模化评测：
 
 原中文文档已用 `_zh` 后缀保留（例如 `ask_eval/README_zh.md`）。
 
-## 环境与安装
+## ⚙️ 环境与安装
 
 建议：Python 3.10+，并使用 conda 环境。
 
@@ -90,7 +100,7 @@ pip install -e ./ask_eval
 pip install -r data_pipeline/requirements.txt
 ```
 
-## Quickstart：运行评测（AskBench + 标准 QA）
+## 🚀 Quickstart：运行评测（AskBench + 标准 QA）
 
 `ask_eval` 假设你有一个 **OpenAI-compatible** 的 chat-completions API，分别用于：
 
@@ -113,7 +123,7 @@ python scripts/main.py --config config/base.ini
 - 可在 `ask_eval/run.sh` 中设置 `STRICT_MODE=1` 来启用更严格的两轮协议（第一轮必须澄清/纠正，第二轮必须直接给最终答案且不能再追问）。
 - 评测输出写入 `ask_eval/results/<task>/<task_name>/`，并在 `ask_eval/results/final_result.txt` 追加聚合汇总行。
 
-## 工具：checkpoint 转换 + OpenAI-compatible API 部署
+## 🛠️ 工具：checkpoint 转换 + OpenAI-compatible API 部署
 
 `ask_eval` 通过 OpenAI-compatible 的 chat-completions API 调用模型。如果你的工作流是基于 API 调用，这里提供了 `tools/` 下两个常用脚本，对应一个常见流程：
 
@@ -156,7 +166,7 @@ bash tools/vllm.sh
 - `[model] api_url = http://<host>:<port>/v1`
 - `[model] model_name = default`（需与 `tools/vllm.sh` 中的 `--served-model-name` 一致）
 
-## 数据集
+## 📦 数据集
 
 - **Hugging Face（推荐下载链接）**：
   - AskBench 评测数据：https://huggingface.co/datasets/jialeuuz/askbench_bench
@@ -164,7 +174,7 @@ bash tools/vllm.sh
 - **评测数据（仓库跟踪）**：位于 `ask_eval/data/`（AskBench 子集 + pipeline 使用的常规 benchmark）。
 - **可选训练/中间数据（不跟踪）**：可放在根目录的 `data/` 下（本仓库默认 `.gitignore` 忽略 `data/`）。
 
-## 输出（会写哪些文件）
+## 📝 输出（会写哪些文件）
 
 根据任务类型，`ask_eval` 会写入以下文件的组合：
 
@@ -172,7 +182,7 @@ bash tools/vllm.sh
 - `summary_results.json`：单轮任务的逐样本输出。
 - `askbench_detailed_results.json`：AskBench 风格任务的逐轮对话轨迹与 judge 判定细节。
 
-## 生成（或重建）AskBench 合并评测集
+## 🧱 生成（或重建）AskBench 合并评测集
 
 AskBench 的主任务通常是由多个子集拼成的小规模 mixture（例如每个来源 benchmark 采样 100 条）。
 
@@ -181,13 +191,13 @@ python ask_eval/data/ask_bench/ask_mind/build_combined_eval.py
 python ask_eval/data/ask_bench/ask_overconfidence/build_combined_eval.py
 ```
 
-## Quickstart：构建 AskBench 风格训练对话数据
+## 🧪 Quickstart：构建 AskBench 风格训练对话数据
 
 数据构建 pipeline 会生成多轮对话（澄清 → 模拟用户回复 → 作答 → 评审），并把成功样本与失败元信息一起写出，便于断点续跑与排查问题。
 
 具体入口与参数说明见 `data_pipeline/README.md`。
 
-## Rubric-guided reward（RLVR）
+## 🎯 Rubric-guided reward（RLVR）
 
 `reward/` 目录包含两个 **VERL 可直接使用** 的 reward 函数实现，对应论文中的 rubric-guided、turn-level shaping：
 
@@ -198,7 +208,7 @@ python ask_eval/data/ask_bench/ask_overconfidence/build_combined_eval.py
 
 另外提供了已脱敏的训练启动脚本参考（VERL + Ray + DAPO/GRPO）：`reward/train.sh`。
 
-## 引用
+## 📚 引用
 
 如果你使用了本仓库，请引用论文：
 

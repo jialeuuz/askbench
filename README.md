@@ -1,6 +1,16 @@
+<div align="center">
+
 # When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification
 
+[![Paper](https://img.shields.io/badge/Paper-PDF-blue?logo=adobeacrobatreader&logoColor=white)](paper.pdf)
+[![HuggingFace (Bench)](https://img.shields.io/badge/HuggingFace-askbench__bench-yellow?logo=huggingface&logoColor=black)](https://huggingface.co/datasets/jialeuuz/askbench_bench)
+[![HuggingFace (Train)](https://img.shields.io/badge/HuggingFace-askbench__train-yellow?logo=huggingface&logoColor=black)](https://huggingface.co/datasets/jialeuuz/askbench_train)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](#setup)
+
 English | [中文](readme_zh.md) | [LLM Guide](readme_for_ai.md)
+
+</div>
 
 This repository contains the code and assets for the paper **“When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification”** (see `paper.pdf`).
 
@@ -14,7 +24,7 @@ Large language models often respond confidently even when a prompt is underspeci
 
 For a concise, LLM-oriented guide to the codebase structure and key entry points (useful when debugging/modifying the repo with an LLM), see `readme_for_ai.md` (Chinese: `readme_for_ai_zh.md`).
 
-## AskBench at a glance
+## ✨ AskBench at a glance
 
 AskBench evaluates clarification as an *interactive* skill. Each example is run with:
 
@@ -25,7 +35,7 @@ AskBench evaluates clarification as an *interactive* skill. Each example is run 
 
 The tested model may ask clarification questions; the judge loop may simulate user replies as needed; and the evaluation ends with a final answer and a judge decision.
 
-## Why AskBench?
+## 🔎 Why AskBench?
 
 Many real user prompts are **underspecified** or contain **misleading premises**. Traditional single-turn QA benchmarks mostly measure “final answering”, but they do not directly measure:
 
@@ -39,7 +49,7 @@ AskBench is designed to make clarification **measurable and scalable**:
 - **Extensible**: standard QA can be adapted by generating a “variant question” (degraded or misleading) plus a checklist.
 - **Easy to adopt**: the evaluation pipeline only requires OpenAI-compatible API endpoints (candidate + judge), which can be served locally (e.g., via vLLM).
 
-## Results (paper highlights)
+## 📈 Results (paper highlights)
 
 In the paper, rubric-guided RLVR improves AskBench multi-turn clarification performance while preserving (and often improving) broad QA capabilities.
 
@@ -54,7 +64,7 @@ Single-turn accuracy and HealthBench score (Table 3):
 | OursI | 0.780 | 0.936 | 0.606 | 0.497 | 0.758 |
 | OursO | 0.720 | 0.992 | 0.559 | 0.781 | 0.760 |
 
-## Repository layout
+## 🧩 Repository layout
 
 - `ask_eval/`: evaluation pipeline (single-turn + AskBench-style multi-turn).
   - User guide: `ask_eval/README.md`
@@ -71,7 +81,7 @@ Single-turn accuracy and HealthBench score (Table 3):
 
 Chinese copies of the original documentation are preserved with a `_zh` suffix (e.g., `readme_zh.md`, `ask_eval/README_zh.md`).
 
-## Setup
+## ⚙️ Setup
 
 Recommended: Python 3.10+ in a conda environment.
 
@@ -90,7 +100,7 @@ pip install -e ./ask_eval
 pip install -r data_pipeline/requirements.txt
 ```
 
-## Quickstart: run evaluation (AskBench + standard QA)
+## 🚀 Quickstart: run evaluation (AskBench + standard QA)
 
 `ask_eval` expects an **OpenAI-compatible** chat-completions API for:
 
@@ -113,7 +123,7 @@ Notes:
 - You can enable a stricter two-turn AskBench protocol via `STRICT_MODE=1` in `ask_eval/run.sh`.
 - Evaluation outputs are written under `ask_eval/results/<task>/<task_name>/`, and an aggregated line is appended to `ask_eval/results/final_result.txt`.
 
-## Tools: checkpoint conversion + OpenAI-compatible serving
+## 🛠️ Tools: checkpoint conversion + OpenAI-compatible serving
 
 `ask_eval` calls models via an OpenAI-compatible chat-completions API. If your workflow is API-based, the two scripts under `tools/` are intended to cover a common flow:
 
@@ -156,7 +166,7 @@ Then configure `ask_eval/config/base.ini` (or `ask_eval/run.sh`) to point at the
 - `[model] api_url = http://<host>:<port>/v1`
 - `[model] model_name = default` (must match `--served-model-name` in `tools/vllm.sh`)
 
-## Datasets
+## 📦 Datasets
 
 - **Hugging Face (recommended download links)**:
   - AskBench evaluation data: https://huggingface.co/datasets/jialeuuz/askbench_bench
@@ -164,7 +174,7 @@ Then configure `ask_eval/config/base.ini` (or `ask_eval/run.sh`) to point at the
 - **Evaluation data (tracked in this repo)**: under `ask_eval/data/` (AskBench subsets + standard benchmarks used by the pipeline).
 - **Optional training / intermediate data (not tracked)**: you can place large local files under `data/` (this repo’s `.gitignore` ignores `data/` by default).
 
-## Outputs (what gets written)
+## 📝 Outputs (what gets written)
 
 Depending on the task type, `ask_eval` writes a combination of:
 
@@ -172,7 +182,7 @@ Depending on the task type, `ask_eval` writes a combination of:
 - `summary_results.json`: per-example outputs for single-turn tasks.
 - `askbench_detailed_results.json`: turn-by-turn traces and judge decisions for AskBench-style tasks.
 
-## Build (or rebuild) combined AskBench eval sets
+## 🧱 Build (or rebuild) combined AskBench eval sets
 
 The AskBench “main” tasks are small mixtures built from multiple subsets (e.g., 100 per source benchmark).
 
@@ -181,13 +191,13 @@ python ask_eval/data/ask_bench/ask_mind/build_combined_eval.py
 python ask_eval/data/ask_bench/ask_overconfidence/build_combined_eval.py
 ```
 
-## Quickstart: build AskBench-style training dialogues
+## 🧪 Quickstart: build AskBench-style training dialogues
 
 The data construction pipeline generates multi-turn conversations (clarify → simulated user reply → answer → judge), and writes successful items plus failure metadata for debugging/resume.
 
 See `data_pipeline/README.md` for the recommended entry points and parameters.
 
-## Rubric-guided reward (RLVR)
+## 🎯 Rubric-guided reward (RLVR)
 
 The `reward/` directory contains **VERL-compatible** reward functions that implement the paper’s rubric-guided, turn-level shaping:
 
@@ -198,7 +208,7 @@ These scripts are meant to be copied into VERL (`verl/utils/reward_score/`) and 
 
 For a sanitized reference training launcher (VERL + Ray + DAPO/GRPO), see `reward/train.sh`.
 
-## Citation
+## 📚 Citation
 
 If you use this codebase, please cite the paper:
 
