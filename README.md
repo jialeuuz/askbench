@@ -72,8 +72,8 @@ Metrics:
 | Gemini-2.5-Pro | 0.567 | 0.124 | 0.840 | 0.749 |
 | GPT-4.1 | 0.495 | 0.118 | 0.730 | 0.602 |
 | Qwen2.5-7B-Instruct | 0.332 | 0.214 | 0.443 | 0.188 |
-| OursI (AskMind; ours) | 0.615 | 0.679 | 0.628 | 0.641 |
-| OursO (AskOverconfidence; ours) | 0.617 | 0.807 | 0.548 | 0.894 |
+| OursI | 0.615 | 0.679 | 0.628 | 0.641 |
+| OursO | 0.617 | 0.807 | 0.548 | 0.894 |
 
 ### Strict two-turn protocol (“Hard”, Table 5)
 
@@ -84,18 +84,21 @@ Under the strict two-turn protocol, turn 1 must clarify/correct; turn 2 must ans
 | Gemini-2.5-Pro | 0.0551 | 0.2206 | 0.0100 | 0.7350 |
 | GPT-4.1 | 0.0352 | 0.2035 | 0.0000 | 0.5865 |
 | Qwen2.5-7B-Instruct | 0.0176 | 0.1288 | 0.0050 | 0.1955 |
-| OursI (AskMind; ours) | 0.2714 | 0.5013 | 0.1975 | 0.5065 |
-| OursO (AskOverconfidence; ours) | 0.1965 | 0.4235 | 0.2600 | 0.7778 |
+| OursI | 0.2714 | 0.5013 | 0.1975 | 0.5065 |
+| OursO | 0.1965 | 0.4235 | 0.2600 | 0.7778 |
 
 Note: the paper abbreviates Gemini-2.5-Pro as *Gemini*, GPT-4.1 as *GPT*, and Qwen2.5-7B-Instruct as *Qwen*.
+OursI and OursO are our rubric-trained models for AskMind and AskOverconfidence, respectively.
 
 ### Single-turn QA + HealthBench (Table 3)
 
 | Model | Math500 | MedQA | HealthBench | GPQA-d | BBH |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Qwen2.5-7B-Instruct | 0.760 | 0.653 | 0.526 | 0.309 | 0.506 |
-| OursI (AskMind; ours) | 0.780 | 0.936 | 0.606 | 0.497 | 0.758 |
-| OursO (AskOverconfidence; ours) | 0.720 | 0.992 | 0.559 | 0.781 | 0.760 |
+| OursI | 0.780 | 0.936 | 0.606 | 0.497 | 0.758 |
+| OursO | 0.720 | 0.992 | 0.559 | 0.781 | 0.760 |
+
+Note: Some benchmarks here (e.g., HealthBench) are LLM-judge-based. To reduce cost and improve reproducibility, we use an open-source judge (e.g., Qwen3-30B-A3B-Instruct-2507 in the paper) instead of a proprietary GPT-based judge, so absolute scores may differ from official numbers while the overall ranking trends remain consistent.
 
 ## 🧩 Repository layout
 
