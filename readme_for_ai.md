@@ -13,9 +13,9 @@ Chinese version: `readme_for_ai_zh.md`.
 | Running evaluations (single-turn + AskBench multi-turn) | `ask_eval/README.md` | `ask_eval/readme_for_ai.md` |
 | Building AskBench-style training dialogues offline | `data_pipeline/README.md` | `data_pipeline/readme_for_ai.md` |
 | RLVR rewards / VERL integration | `reward/readme` | `reward/readme_for_ai.md` |
-| Serving a local model as OpenAI-compatible API (vLLM) | `tools/vllm.sh` | `readme` (Tools section) |
-| Converting training checkpoints for vLLM | `tools/merge.sh` | `readme` (Tools section) |
-| Paper terminology / background | `paper.pdf` | `readme` |
+| Serving a local model as OpenAI-compatible API (vLLM) | `tools/vllm.sh` | `README.md` (Tools section) |
+| Converting training checkpoints for vLLM | `tools/merge.sh` | `README.md` (Tools section) |
+| Paper terminology / background | `paper.pdf` | `README.md` |
 
 ## Concepts (paper alignment)
 

@@ -1,6 +1,6 @@
 # When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification
 
-[中文](readme_zh.md) | [English](readme)
+[中文](readme_zh.md) | [English](README.md) | [LLM 导读](readme_for_ai_zh.md)
 
 本仓库包含论文 **“When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification”** 的代码与相关资源（见 `paper.pdf`）。
 
