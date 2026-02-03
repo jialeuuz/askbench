@@ -96,6 +96,6 @@ def convert_jsonl_to_training_format(input_file_path, output_file_path):
         print(f"Fatal error: {e}")
 
 if __name__ == '__main__':
-    input_path = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/final_train_data/degrade_med_40k_oss120b_low.jsonl'
-    output_path = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/models/train/LLaMA-Factory/data/degrade_med_40k_oss120b_low.json'
+    input_path = os.getenv("INPUT_FILE", "/path/to/input.jsonl")
+    output_path = os.getenv("OUTPUT_FILE", "/path/to/output.json")
     convert_jsonl_to_training_format(input_path, output_path)

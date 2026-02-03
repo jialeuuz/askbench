@@ -25,6 +25,35 @@ AskBench 将“澄清”作为一种**交互能力**来评测。每个样本运�
 
 整体流程是：被测模型可提澄清问题 → Judge 视情况模拟用户回复 → 产出最终答案 → Judge 给出判定与统计。
 
+## 为什么是 AskBench？
+
+在真实交互中，用户问题常常 **信息不足** 或包含 **误导前提**。传统单轮 benchmark 更擅长衡量“答得对不对”，但很难衡量：
+
+- 模型是否能在合适时机选择追问；以及
+- 追问是否命中真正关键的缺失点/误导点。
+
+AskBench 的设计旨在让“澄清能力”可规模化评测：
+
+- **交互式且可自动化**：judge loop 在模型明确追问时才模拟用户补充信息，并端到端评分最终答案。
+- **细粒度且可解释**：checkpoints/rubrics 把澄清行为拆成可分析的条目指标（例如 checkpoint coverage）。
+- **高拓展性**：为标准 QA 生成“变体问题”（degraded 或注入误导前提）并配套 checklist，即可快速改造为交互式评测。
+- **易用性强**：评测只依赖 OpenAI-compatible API（被测模型 + judge），可通过 vLLM 等工具本地部署。
+
+## 论文结果（亮点）
+
+论文中，rubric-guided RLVR 在 AskBench 多轮评测上显著提升澄清能力，同时能保持（甚至提升）单轮 QA 等通用能力。
+
+- AskMind：Acc. 0.332 → 0.615；Cov. 0.214 → 0.679（Table 4）
+- AskOverconfidence：checkpoint coverage 0.188 → 0.894（Table 4）
+
+单轮准确率与 HealthBench 得分（Table 3）：
+
+| 模型 | Math500 | MedQA | HealthBench | GPQA-d | BBH |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen | 0.760 | 0.653 | 0.526 | 0.309 | 0.506 |
+| OursI | 0.780 | 0.936 | 0.606 | 0.497 | 0.758 |
+| OursO | 0.720 | 0.992 | 0.559 | 0.781 | 0.760 |
+
 ## 仓库结构
 
 - `ask_eval/`：评测 pipeline（单轮 + AskBench 风格的多轮评测）。

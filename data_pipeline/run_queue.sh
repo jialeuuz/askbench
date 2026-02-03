@@ -16,49 +16,19 @@
 SERIAL_QUEUE_1='[
   {
     "STRATEGY": "generate_multi_turn_degraded_training_data",
-    "INPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/dapo/dapo_distill_sample_2k.jsonl",
-    "OUTPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/train_data/degrade_math_sample_20k_oss120b_heigh.jsonl",
-    "API_URLS": ["http://10.80.13.242:8012/v1/chat/completions"]
-  },
-  {
-    "STRATEGY": "generate_multi_turn_degraded_training_data",
-    "INPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/ori_data/med_sample_20k_clear.jsonl",
-    "OUTPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/train_data/degrade_med_sample_20k_oss120b_heigh.jsonl",
-    "API_URLS": ["http://10.80.13.242:8012/v1/chat/completions"]
-  },
-  {
-    "STRATEGY": "strategy_direct_answer_and_correct",
-    "INPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/ori_data/med_sample_20k_clear.jsonl",
-    "OUTPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/train_data/ori_med_sample_20k_oss120b_heigh.jsonl",
-    "API_URLS": ["http://10.80.13.242:8012/v1/chat/completions"]
+    "INPUT_FILE": "/path/to/input.jsonl",
+    "OUTPUT_FILE": "/path/to/output.jsonl",
+    "API_URLS": ["http://127.0.0.1:8000/v1/chat/completions"]
   }
 ]'
 
 # --- Serial queue 2 (uses a different API; can run in parallel) ---
 SERIAL_QUEUE_2='[
   {
-    "STRATEGY": "generate_multi_turn_degraded_training_data",
-    "INPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/useless/math_sample_20k.jsonl",
-    "OUTPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/train_data/degrade_math_sample_20k_a3b_ins_2507.jsonl",
-    "API_URLS": ["http://10.80.12.34:8012/v1/chat/completions"]
-  },
-  {
-    "STRATEGY": "strategy_direct_answer_and_correct",
-    "INPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/useless/math_sample_20k.jsonl",
-    "OUTPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/train_data/ori_math_sample_20k_a3b_ins_2507.jsonl",
-    "API_URLS": ["http://10.80.12.34:8012/v1/chat/completions"]
-  },
-  {
-    "STRATEGY": "generate_multi_turn_degraded_training_data",
-    "INPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/ori_data/med_sample_20k_clear.jsonl",
-    "OUTPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/train_data/degrade_med_sample_20k_a3b_ins_2507.jsonl",
-    "API_URLS": ["http://10.80.12.34:8012/v1/chat/completions"]
-  },
-  {
-    "STRATEGY": "strategy_direct_answer_and_correct",
-    "INPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/ori_data/med_sample_20k_clear.jsonl",
-    "OUTPUT_FILE": "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/train_data/ori_med_sample_20k_a3b_ins_2507.jsonl",
-    "API_URLS": ["http://10.80.12.34:8012/v1/chat/completions"]
+    "STRATEGY": "generate_multi_turn_overconfidence_training_data",
+    "INPUT_FILE": "/path/to/input_overconfidence.jsonl",
+    "OUTPUT_FILE": "/path/to/output_overconfidence.jsonl",
+    "API_URLS": ["http://127.0.0.1:8001/v1/chat/completions"]
   }
 ]'
 
@@ -66,11 +36,8 @@ SERIAL_QUEUE_2='[
 # --- Parallel execution plan ---
 # Add/remove queue variables below.
 # Example: to run only the first queue: PARALLEL_QUEUES=( "$SERIAL_QUEUE_1" )
-# The config below runs the queues defined above in parallel.
-PARALLEL_QUEUES=(
-  "$SERIAL_QUEUE_1"
-  "$SERIAL_QUEUE_2"
-)
+# Keep empty by default to avoid accidentally running placeholder tasks.
+PARALLEL_QUEUES=()
 
 
 # ==============================================================================

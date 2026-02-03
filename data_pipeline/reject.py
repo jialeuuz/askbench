@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
+import os
 import re
 import time
 from typing import Dict, Any, Optional, List
@@ -568,12 +569,12 @@ def run_pipeline(
 # Script entrypoint
 # =========================
 if __name__ == "__main__":
-    INPUT_JSONL_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/train-medmcqa-clear-sample2w.jsonl"
-    SAMPLE_TIMES = 16
-    SUCCESS_OUTPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/yitu/medmcqa_all_reject_235b_x16.jsonl"
-    FAILED_OUTPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/yitu/medmcqa_all_reject_235b_x16_failed.jsonl"
+    INPUT_JSONL_FILE = os.getenv("INPUT_FILE", "/path/to/input.jsonl")
+    SAMPLE_TIMES = int(os.getenv("SAMPLE_TIMES", "16"))
+    SUCCESS_OUTPUT_FILE = os.getenv("SUCCESS_OUTPUT_FILE", "/path/to/success.jsonl")
+    FAILED_OUTPUT_FILE = os.getenv("FAILED_OUTPUT_FILE", "/path/to/failed.jsonl")
 
-    INF_API_URL = "http://10.80.128.219:9012/v1/chat/completions"
+    INF_API_URL = os.getenv("INF_API_URL", "http://127.0.0.1:8000/v1/chat/completions")
 
     run_pipeline(
         input_file=INPUT_JSONL_FILE,
@@ -581,11 +582,11 @@ if __name__ == "__main__":
         success_output_file=SUCCESS_OUTPUT_FILE,
         failed_output_file=FAILED_OUTPUT_FILE,
         inf_api_url=INF_API_URL,
-        inf_model="default",
-        inf_max_concurrent=2000,     # uses a single endpoint; only one concurrency value needed
-        save_interval=10000,
-        use_checkpoint=True,
-        checkpoint_file=None,
-        max_retries_inf=20,
-        total_timeout_sec=7200
+        inf_model=os.getenv("INF_MODEL", "default"),
+        inf_max_concurrent=int(os.getenv("INF_MAX_CONCURRENT", "100")),
+        save_interval=int(os.getenv("SAVE_INTERVAL", "2000")),
+        use_checkpoint=os.getenv("USE_CHECKPOINT", "1").strip() in ("1", "true", "True", "YES", "yes"),
+        checkpoint_file=os.getenv("CHECKPOINT_FILE") or None,
+        max_retries_inf=int(os.getenv("MAX_RETRIES_INF", "20")),
+        total_timeout_sec=int(os.getenv("TOTAL_TIMEOUT_SEC", "7200")),
     )

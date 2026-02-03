@@ -25,6 +25,35 @@ AskBench evaluates clarification as an *interactive* skill. Each example is run 
 
 The tested model may ask clarification questions; the judge loop may simulate user replies as needed; and the evaluation ends with a final answer and a judge decision.
 
+## Why AskBench?
+
+Many real user prompts are **underspecified** or contain **misleading premises**. Traditional single-turn QA benchmarks mostly measure “final answering”, but they do not directly measure:
+
+- whether a model decides to ask a follow-up question at the right time, or
+- whether the follow-up question targets the *right missing/misleading points*.
+
+AskBench is designed to make clarification **measurable and scalable**:
+
+- **Interactive + automatable**: the judge loop simulates user replies only when the candidate explicitly asks, and grades the final answer end-to-end.
+- **Fine-grained + interpretable**: checkpoint/rubric items turn “clarification quality” into actionable diagnostics (e.g., checkpoint coverage).
+- **Extensible**: standard QA can be adapted by generating a “variant question” (degraded or misleading) plus a checklist.
+- **Easy to adopt**: the evaluation pipeline only requires OpenAI-compatible API endpoints (candidate + judge), which can be served locally (e.g., via vLLM).
+
+## Results (paper highlights)
+
+In the paper, rubric-guided RLVR improves AskBench multi-turn clarification performance while preserving (and often improving) broad QA capabilities.
+
+- AskMind: Acc. 0.332 → 0.615; Cov. 0.214 → 0.679 (Table 4)
+- AskOverconfidence: checkpoint coverage 0.188 → 0.894 (Table 4)
+
+Single-turn accuracy and HealthBench score (Table 3):
+
+| Model | Math500 | MedQA | HealthBench | GPQA-d | BBH |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen | 0.760 | 0.653 | 0.526 | 0.309 | 0.506 |
+| OursI | 0.780 | 0.936 | 0.606 | 0.497 | 0.758 |
+| OursO | 0.720 | 0.992 | 0.559 | 0.781 | 0.760 |
+
 ## Repository layout
 
 - `ask_eval/`: evaluation pipeline (single-turn + AskBench-style multi-turn).

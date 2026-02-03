@@ -1,3 +1,5 @@
+import os
+
 def merge_jsonl(input_paths, output_path):
     """
     Merge one or more JSONL files into a single output file.
@@ -20,9 +22,9 @@ def merge_jsonl(input_paths, output_path):
 
 
 if __name__ == '__main__':
-    file1 = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/final_train_data/degrade_med_40k_oss120b_low.jsonl'
-    file2 = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/train_data/degrade_math_40k_oss120b_low.jsonl'
-    output_path = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/final_train_data/degrade_math_med_80k_oss120b_low.jsonl'
+    file1 = os.getenv("INPUT_FILE_1", "/path/to/file1.jsonl")
+    file2 = os.getenv("INPUT_FILE_2", "/path/to/file2.jsonl")
+    output_path = os.getenv("OUTPUT_FILE", "/path/to/output.jsonl")
     files_to_merge = [file1, file2]
     output_filename = output_path
     merge_jsonl(files_to_merge, output_filename)

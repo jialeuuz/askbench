@@ -247,17 +247,22 @@ if __name__ == "__main__":
     #     Overconfidence multi-turn generation: correct misleading claims, then answer and judge.
     # - "strategy_direct_answer_and_correct":
     #     Direct answer then judge; if wrong, reconstruct a "perfect answer" from expected_answer and optional solution.
-    STRATEGY = "generate_multi_turn_degraded_training_data"
-    INPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/sample_medmcqa_2k_clear.jsonl"
-    OUTPUT_FILE = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/yitu/sample_medmcqa_2k_ask.jsonl"
-    API_URLS = ["http://10.80.128.219:9012/v1/chat/completions"]
-    API_TYPE = "default"
-    API_TOKEN = "none"
-    PROMPTS_FILE = "prompts.txt"
-    MAX_CONCURRENT_REQUESTS = 200
-    TIMEOUT = 3600
-    BATCH_SIZE = 1000
-    ID_KEY = "id" 
+    STRATEGY = os.getenv("STRATEGY", "generate_multi_turn_degraded_training_data")
+    INPUT_FILE = os.getenv("INPUT_FILE", "/path/to/input.jsonl")
+    OUTPUT_FILE = os.getenv("OUTPUT_FILE", "/path/to/output.jsonl")
+    API_URLS = [
+        u.strip()
+        for u in os.getenv("API_URLS", "http://127.0.0.1:8000/v1/chat/completions").split(",")
+        if u.strip()
+    ]
+    API_TYPE = os.getenv("API_TYPE", "default")
+    API_TOKEN = os.getenv("API_TOKEN", "none")
+    DEFAULT_PROMPTS_FILE = os.path.join(os.path.dirname(__file__), "prompts.txt")
+    PROMPTS_FILE = os.getenv("PROMPTS_FILE", DEFAULT_PROMPTS_FILE)
+    MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", "200"))
+    TIMEOUT = int(os.getenv("TIMEOUT", "3600"))
+    BATCH_SIZE = int(os.getenv("BATCH_SIZE", "1000"))
+    ID_KEY = os.getenv("ID_KEY", "id")
     # Enable via env var REPROCESS_FAILED=1 (takes precedence over the constant below).
     REPROCESS_FAILED = False  # Set to True to reprocess historical failures
     env_flag = os.getenv("REPROCESS_FAILED")

@@ -2,8 +2,8 @@ import os
 import pandas as pd
 
 # Fixed parameters (edit as needed)
-input_dir = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/ori_data/NuminaMath-CoT"  # directory containing parquet files
-output_file = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/ori_data/NuminaMath_cot.jsonl"  # output JSONL file
+input_dir = os.getenv("INPUT_DIR", "/path/to/parquet_dir")  # directory containing parquet files
+output_file = os.getenv("OUTPUT_FILE", "/path/to/output.jsonl")  # output JSONL file
 
 def convert_parquet_to_jsonl(input_dir, output_file):
     dfs = []

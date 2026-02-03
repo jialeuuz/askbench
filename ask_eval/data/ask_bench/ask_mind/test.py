@@ -65,11 +65,11 @@ def convert_expected_answer_to_string(input_file_path, output_file_path):
 # --- 主程序入口 ---
 if __name__ == '__main__':
     # 定义输入和输出文件的路径
-    input_path = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/ask_eval/data/ask_bench/ask_mind/ask_mind_aime2025de/test.jsonl'
+    input_path = os.getenv("INPUT_FILE", "/path/to/input.jsonl")
     
     # 建议将结果写入一个新文件，以避免覆盖原始数据
     # 新文件名中加入了 "_string_answers" 以作区分
-    output_path = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/ask_eval/data/ask_bench/ask_mind/ask_mind_aime2025de/test_string_answers.jsonl'
+    output_path = os.getenv("OUTPUT_FILE", "/path/to/output.jsonl")
     
     # 调用函数执行转换
     convert_expected_answer_to_string(input_path, output_path)

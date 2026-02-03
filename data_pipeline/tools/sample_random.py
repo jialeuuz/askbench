@@ -67,10 +67,10 @@ def sample_random_jsonl(input_file_path: str, output_file_path: str, sample_size
         print(f"Unexpected error while sampling: {e}")
 
 if __name__ == "__main__":
-    INPUT_FILE = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/ori_data/NuminaMath_cot_extra_success.jsonl'
-    OUTPUT_FILE = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/ori_data/test.jsonl'
-    SAMPLE_SIZE = 2000
-    RANDOM_SEED = 42
+    INPUT_FILE = os.getenv("INPUT_FILE", "/path/to/input.jsonl")
+    OUTPUT_FILE = os.getenv("OUTPUT_FILE", "/path/to/output.jsonl")
+    SAMPLE_SIZE = int(os.getenv("SAMPLE_SIZE", "2000"))
+    RANDOM_SEED = int(os.getenv("RANDOM_SEED", "42"))
 
     # Run
     sample_random_jsonl(

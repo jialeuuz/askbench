@@ -65,8 +65,8 @@ def process_jsonl(input_file: str, output_file: str, columns_to_extract: list, c
 if __name__ == '__main__':
     
     # --- 1) Input/output paths ---
-    input_file_path = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/rubric/mindeval/data/common_language/math/aime2025/test.jsonl'
-    output_file_path = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/ask_eval/data/common/aime2025/test_clear.jsonl'
+    input_file_path = os.getenv("INPUT_FILE", "/path/to/input.jsonl")
+    output_file_path = os.getenv("OUTPUT_FILE", "/path/to/output.jsonl")
 
     # --- 2) Keys to extract ---
     columns_to_extract = ['problem', 'answer']

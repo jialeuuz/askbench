@@ -78,8 +78,8 @@ def convert_jsonl_to_training_format(input_file_path, output_file_path):
 # --- Main ---
 if __name__ == "__main__":
     # Set input/output paths
-    input_path = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/data/useless/math_sample_20k.jsonl'
-    output_path = '/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/models/train/LLaMA-Factory/data/math_sample_20k.json'
+    input_path = os.getenv("INPUT_FILE", "/path/to/input.jsonl")
+    output_path = os.getenv("OUTPUT_FILE", "/path/to/output.json")
     
     # Run conversion
     convert_jsonl_to_training_format(input_path, output_path)

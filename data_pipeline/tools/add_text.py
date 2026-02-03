@@ -1,9 +1,10 @@
 import json
+import os
 
 # Input file path
-input_file = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/ask_eval/data/common/aime2025/test_clear.jsonl"
+input_file = os.getenv("INPUT_FILE", "/path/to/input.jsonl")
 # Output file path (write to a new file first to avoid corrupting the original)
-output_file = "/lpai/volumes/base-mindgpt-ali-sh-mix/zhaojiale/why_ask/ask_eval/data/common/aime2025/test.jsonl"
+output_file = os.getenv("OUTPUT_FILE", "/path/to/output.jsonl")
 
 # Fixed suffix/prefix to add
 # prefix_text = ("Please answer the following multiple-choice questions, ensuring your response concludes "
