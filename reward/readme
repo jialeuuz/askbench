@@ -9,7 +9,7 @@ It provides two reward modules aligned with the paper’s two AskBench dimension
 
 These scripts are designed to be dropped into the **VERL** project (not vendored in this repo):
 
-- VERL repo: `https://github.com/verl-project/verl.git`
+- VERL repo: <https://github.com/verl-project/verl.git>
 - Target directory (inside the VERL repo): `verl/utils/reward_score/`
 
 ## 1) Configure the judge model API

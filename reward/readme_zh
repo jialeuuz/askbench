@@ -9,7 +9,7 @@
 
 这两个脚本的设计目标是：直接放到 **VERL** 项目里使用（本仓库不包含 VERL 代码）：
 
-- VERL 仓库：`https://github.com/verl-project/verl.git`
+- VERL 仓库：<https://github.com/verl-project/verl.git>
 - 目标目录（在 VERL 仓库内）：`verl/utils/reward_score/`
 
 ## 1）配置 Judge 模型 API
