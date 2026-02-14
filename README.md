@@ -2,7 +2,8 @@
 
 # When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification
 
-[![Paper](https://img.shields.io/badge/Paper-PDF-blue?logo=adobeacrobatreader&logoColor=white)](paper.pdf)
+[![Paper](https://img.shields.io/badge/Paper-PDF-blue?logo=adobeacrobatreader&logoColor=white)](https://arxiv.org/pdf/2602.11199v1)
+[![arXiv](https://img.shields.io/badge/arXiv-2602.11199-b31b1b.svg)](https://arxiv.org/abs/2602.11199)
 [![HuggingFace (Bench)](https://img.shields.io/badge/HuggingFace-askbench__bench-yellow?logo=huggingface&logoColor=black)](https://huggingface.co/datasets/jialeuuz/askbench_bench)
 [![HuggingFace (Train)](https://img.shields.io/badge/HuggingFace-askbench__train-yellow?logo=huggingface&logoColor=black)](https://huggingface.co/datasets/jialeuuz/askbench_train)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -11,7 +12,7 @@ English | [中文](readme_zh.md) | [LLM Guide](readme_for_ai.md)
 
 </div>
 
-This repository contains the code and assets for the paper **“When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification”**. The arXiv version is under review; you can read the current PDF here: 🔗 [paper.pdf](paper.pdf).
+This repository contains the code and assets for the paper **“When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification”**. The paper is available on arXiv: 🔗 [abs](https://arxiv.org/abs/2602.11199) | [pdf](https://arxiv.org/pdf/2602.11199v1).
 
 Large language models often respond confidently even when a prompt is underspecified or contains misleading premises. This project studies **when** a model should ask for clarification and **what** it should ask, and provides:
 
@@ -115,7 +116,7 @@ Note: Some benchmarks here (e.g., HealthBench) are LLM-judge-based. To reduce co
 - `reward/`: rubric-guided reward function / training helpers (for RLVR-style training).
 - `tools/`: helper scripts for (1) converting training checkpoints into an inference-ready HuggingFace model dir, and (2) serving a model as an OpenAI-compatible API (vLLM).
 - `readme_for_ai.md`: LLM-oriented repository guide (architecture + key entry points).
-- `paper.pdf`: paper PDF (anonymous submission build).
+- `paper.pdf`: paper PDF (anonymous submission build; arXiv version is the canonical copy).
 
 Chinese copies of the original documentation are preserved with a `_zh` suffix (e.g., `readme_zh.md`, `ask_eval/README_zh.md`).
 

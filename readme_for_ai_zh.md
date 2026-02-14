@@ -14,7 +14,7 @@
 | RLVR reward / 接入 VERL | `reward/readme_zh` | `reward/readme_for_ai_zh.md` |
 | 用 vLLM 部署 OpenAI-compatible API | `tools/vllm.sh` | 根目录 `readme_zh.md`（Tools 小节） |
 | 训练 checkpoint 转换（给 vLLM 推理用） | `tools/merge.sh` | 根目录 `readme_zh.md`（Tools 小节） |
-| 论文术语/背景 | `paper.pdf` | 根目录 `readme_zh.md` |
+| 论文术语/背景 | [arXiv:2602.11199](https://arxiv.org/abs/2602.11199) | 根目录 `readme_zh.md` |
 
 ## 概念对齐（对应论文）
 

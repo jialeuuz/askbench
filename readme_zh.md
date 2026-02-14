@@ -2,7 +2,8 @@
 
 # When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification
 
-[![论文](https://img.shields.io/badge/Paper-PDF-blue?logo=adobeacrobatreader&logoColor=white)](paper.pdf)
+[![论文](https://img.shields.io/badge/Paper-PDF-blue?logo=adobeacrobatreader&logoColor=white)](https://arxiv.org/pdf/2602.11199v1)
+[![arXiv](https://img.shields.io/badge/arXiv-2602.11199-b31b1b.svg)](https://arxiv.org/abs/2602.11199)
 [![HuggingFace (Bench)](https://img.shields.io/badge/HuggingFace-askbench__bench-yellow?logo=huggingface&logoColor=black)](https://huggingface.co/datasets/jialeuuz/askbench_bench)
 [![HuggingFace (Train)](https://img.shields.io/badge/HuggingFace-askbench__train-yellow?logo=huggingface&logoColor=black)](https://huggingface.co/datasets/jialeuuz/askbench_train)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -11,7 +12,7 @@
 
 </div>
 
-本仓库包含论文 **“When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification”** 的代码与相关资源。arXiv 版本正在审核中；你可以先阅读本仓库内的 PDF：🔗 [paper.pdf](paper.pdf)。
+本仓库包含论文 **“When and What to Ask: AskBench and Rubric-Guided RLVR for LLM Clarification”** 的代码与相关资源。论文已发布在 arXiv：🔗 [abs](https://arxiv.org/abs/2602.11199) | [pdf](https://arxiv.org/pdf/2602.11199v1)。
 
 大语言模型在面对**信息不足**或**包含误导前提**的提问时，往往仍会直接作答，从而产生幻觉或强化错误认知。本项目研究模型应该**何时**以及**问什么**来进行澄清，并提供：
 
@@ -115,7 +116,7 @@ OursI/OursO 分别是我们在 AskMind/AskOverconfidence 维度上训练得到�
 - `reward/`：rubric-guided reward / 训练辅助脚本（用于 RLVR 风格训练）。
 - `tools/`：辅助脚本，用于（1）将训练 checkpoint 转成可推理的 HuggingFace 模型目录，以及（2）用 vLLM 部署 OpenAI-compatible API。
 - `readme_for_ai.md`：面向 LLM 的仓库导读（架构梳理 + 关键入口）。
-- `paper.pdf`：论文 PDF（匿名投稿版本构建产物）。
+- `paper.pdf`：论文 PDF（匿名投稿版本构建产物；以 arXiv 版本为准）。
 
 原中文文档已用 `_zh` 后缀保留（例如 `ask_eval/README_zh.md`）。
 
